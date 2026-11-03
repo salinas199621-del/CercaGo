@@ -20,27 +20,29 @@ Marketplace local con API REST, PostgreSQL, Socket.IO, app Expo para cliente/com
 
 En la pantalla de acceso puedes entrar a la demo como cliente, comercio o repartidor. Los perfiles de demo usan datos locales; el tipo de cambio sí consulta el endpoint público de la API. Sin API disponible se indica que no hay tasa, en lugar de mostrar un valor inventado.
 
-## Probar la demo desde un teléfono con GitHub Pages
+## Publicar y probar la web con GitHub Pages
 
-El despliegue de prueba publica la app Expo como web estática (no instala una app nativa). No necesita API, PostgreSQL ni secretos: sus perfiles de demostración usan datos locales.
+GitHub Pages publica la app Expo como web estática (no instala una app nativa). La demo permite probar las interfaces con datos locales. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, despliega también la API y PostgreSQL como se indica abajo.
 
-1. Crea un repositorio en GitHub. Si no quieres publicar el código, revisa primero si tu plan permite GitHub Pages para repositorios privados.
-2. Desde esta carpeta, abre una terminal y sube el proyecto (reemplaza `TU_USUARIO/TU_REPOSITORIO`):
+1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
+2. Abre **Actions** y espera a que termine el workflow **Deploy CercaGo demo**. El sitio público de este repositorio es [CercaGo](https://salinas199621-del.github.io/CercaGo/).
+3. Después de cada `git push` a `main`, GitHub volverá a publicar el sitio. No subas archivos `.env` ni secretos al repositorio.
+4. Cuando configures `CERCAGO_API_URL` en las variables de Actions como se explica abajo, el mismo despliegue publicará el panel admin en `https://salinas199621-del.github.io/CercaGo/admin/`.
 
-   ```powershell
-   git init
-   git add .
-   git commit -m "Preparar CercaGo"
-   git branch -M main
-   git remote add origin https://github.com/TU_USUARIO/TU_REPOSITORIO.git
-   git push -u origin main
-   ```
+Para abrir la web en el teléfono, comparte el enlace público. Para dejarla como acceso directo, usa **Añadir a pantalla de inicio** en el navegador; sigue siendo una aplicación web, no una descarga de Play Store.
 
-3. En GitHub abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
-4. Abre **Actions** y espera a que termine el workflow **Deploy CercaGo demo**. En su resumen encontrarás el enlace público.
-5. Abre ese enlace en tu teléfono. Para instalarlo como acceso directo, usa **Añadir a pantalla de inicio** en el navegador; esto es una app web, no una descarga desde App Store/Google Play.
+## Desplegar API y base de datos para uso real
 
-Después de cada `git push` a `main`, GitHub volverá a publicar la demo. No subas archivos `.env` ni secretos al repositorio.
+El repositorio incluye `render.yaml` para desplegar la API Node en Render. Para PostgreSQL se puede usar Neon. Los planes gratuitos son útiles para pruebas, pero pueden dormir o tener límites; revisa los precios y límites actuales antes de operar el marketplace.
+
+1. Crea un proyecto PostgreSQL en Neon y copia la cadena de conexión (usa la cadena recomendada por Neon con SSL). No la compartas ni la guardes en Git.
+2. En Render, crea un **Blueprint** conectado a este repositorio y acepta `render.yaml`. Configura `DATABASE_URL` con la cadena de Neon cuando Render la solicite. `JWT_SECRET` se genera automáticamente y `CLIENT_ORIGIN` permite el sitio web de GitHub Pages.
+3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Solo para una base ya existente, aplica las migraciones 001, 002 y 003 en ese orden.
+4. En Render, espera a que el servicio `cercago-api` esté activo. Comprueba `https://TU-API.onrender.com/health`; debe responder `{"status":"ok"}`.
+5. Crea el administrador inicial ejecutando `npm run create-admin -w @cercago/api` desde tu equipo, con `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y una contraseña de 16–72 bytes configurados temporalmente en la terminal. No añadas esos valores al repositorio.
+6. En GitHub abre **Settings → Secrets and variables → Actions → Variables** y crea `CERCAGO_API_URL` con la URL del API más `/api`, por ejemplo `https://cercago-api.onrender.com/api`.
+7. En **Actions**, vuelve a ejecutar **Deploy CercaGo demo**. El build incorporará la URL pública del API y publicará tanto la app como el panel de administración. La tasa BCV, el acceso a cuentas reales y la sincronización entre dispositivos dependerán de que la API y la base de datos estén disponibles.
+
 
 ## Generar e instalar un APK de Android
 

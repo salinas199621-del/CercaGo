@@ -12,6 +12,13 @@ let socket: Socket | null = null;
 
 export async function api<T>(path: string, token?: string, init: RequestInit = {}): Promise<T> {
   const isPublicExchangeRate = path === "/exchange-rate" && (init.method ?? "GET").toUpperCase() === "GET";
+  const isUnconfiguredHostedWeb = Platform.OS === "web" &&
+    typeof window !== "undefined" &&
+    window.location.protocol === "https:" &&
+    !process.env.EXPO_PUBLIC_API_URL;
+  if (isPublicExchangeRate && isUnconfiguredHostedWeb) {
+    return demoApi<T>(path, init);
+  }
   if (!isPublicExchangeRate && (token === "demo" || isDemoMode())) {
     await new Promise((resolve) => setTimeout(resolve, 180));
     return demoApi<T>(path, init);

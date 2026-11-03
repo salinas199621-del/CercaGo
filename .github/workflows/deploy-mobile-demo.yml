@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - "apps/mobile/**"
+      - "apps/admin/**"
       - ".github/workflows/deploy-mobile-demo.yml"
       - "package-lock.json"
       - "package.json"
+      - "render.yaml"
   workflow_dispatch:
 
 permissions:
@@ -46,13 +48,26 @@ jobs:
         run: |
           if [[ "$GITHUB_REPOSITORY" == "$GITHUB_REPOSITORY_OWNER.github.io" ]]; then
             echo "EXPO_BASE_URL=" >> "$GITHUB_ENV"
+            echo "VITE_BASE_PATH=/admin/" >> "$GITHUB_ENV"
           else
             echo "EXPO_BASE_URL=/${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+            echo "VITE_BASE_PATH=/${GITHUB_REPOSITORY#*/}/admin/" >> "$GITHUB_ENV"
           fi
 
       - name: Export Expo web app
         working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_API_URL: ${{ vars.CERCAGO_API_URL }}
         run: npx expo export --platform web
+
+      - name: Build administration panel
+        if: ${{ vars.CERCAGO_API_URL != '' }}
+        env:
+          VITE_API_URL: ${{ vars.CERCAGO_API_URL }}
+        run: |
+          npm run build -w @cercago/admin
+          mkdir -p apps/mobile/dist/admin
+          cp -R apps/admin/dist/. apps/mobile/dist/admin/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
