@@ -6,14 +6,31 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "plugins": [
-      ["expo-location", { "locationWhenInUsePermission": "CercaGo usa tu ubicación para mostrar comercios y entregas cercanas." }]
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CercaGo usa tu ubicación para mostrar comercios y entregas cercanas."
+        }
+      ]
     ],
-    "splash": { "backgroundColor": "#f8fafc" },
-    "ios": { "supportsTablet": true },
+    "splash": {
+      "backgroundColor": "#f8fafc"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
     "android": {
       "package": "com.cercago.marketplace",
       "versionCode": 1,
-      "adaptiveIcon": { "backgroundColor": "#ffffff" }
-    }
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "037bd426-a065-4a85-9f02-083d3769a313"
+      }
+    },
+    "owner": "andres210896"
   }
 }
