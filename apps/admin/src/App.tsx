@@ -3,7 +3,7 @@ import cercaGoLogo from "../../mobile/public/cercago-logo.png";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 type User = { id: string; name: string; email: string; role: string; active: boolean };
-type Store = { id: string; name: string; address: string; owner_name: string; owner_email: string; approved: boolean; active: boolean; commission_rate: number };
+type Store = { id: string; name: string; address: string; owner_name: string; owner_email: string; approved: boolean; active: boolean; commission_rate: number; is_demo: boolean };
 type StoreUpdate = { approved?: boolean; active?: boolean; commissionRate?: number };
 type Metrics = { users: Array<{ role: string; count: number }>; stores: { total: number; approved: number }; orders: Array<{ status: string; count: number }>; sales: { gross_sales: string; order_count: number } };
 type ExchangeRate = { rate: number; source: "BCV"; valueDate: string; updatedAt: string };
@@ -43,6 +43,7 @@ export default function App() {
   const [passwordError, setPasswordError] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -152,9 +153,44 @@ export default function App() {
 
   async function updateStore(store: Store, update: StoreUpdate) {
     try {
+      setNotice("");
       await request(`/admin/stores/${store.id}`, token, { method: "PATCH", body: JSON.stringify(update) });
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo actualizar el comercio"); }
+  }
+
+  async function seedDemoStores() {
+    if (!window.confirm("Se agregarán 3 comercios de prueba con 15 productos visibles para los clientes. ¿Continuar?")) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await request<{ createdStores: number; createdProducts: number; existingStores: number }>(
+        "/admin/demo-stores",
+        token,
+        { method: "POST" },
+      );
+      setNotice(result.createdStores
+        ? `Se agregaron ${result.createdStores} comercios y ${result.createdProducts} productos de prueba.`
+        : "Las tiendas de prueba ya estaban cargadas.");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudieron agregar las tiendas de prueba");
+    } finally { setBusy(false); }
+  }
+
+  async function deleteStore(store: Store) {
+    if (!window.confirm(`¿Eliminar "${store.name}" y sus productos? No se puede eliminar si tiene pedidos o reseñas.`)) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await request(`/admin/stores/${store.id}`, token, { method: "DELETE" });
+      setNotice(`Se eliminó "${store.name}" y se desactivó su cuenta de comercio.`);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo eliminar el comercio");
+    } finally { setBusy(false); }
   }
 
   async function toggleUser(user: User) {
@@ -270,6 +306,7 @@ export default function App() {
         </form>
       </section>
       {error && <p className="error">{error}</p>}
+      {notice && <p className="success" role="status">{notice}</p>}
       {busy && <p className="muted">Actualizando información…</p>}
       <section className="metrics">
         <article><span>Ventas brutas</span><strong>${Number(metrics?.sales.gross_sales ?? 0).toFixed(2)}</strong><small>Bs. {salesInBolivars}</small></article>
@@ -297,10 +334,13 @@ export default function App() {
         {exchangeRateError && <p role="status" className="muted">{exchangeRateError}</p>}
       </section>
       <section className="panel">
-        <div className="section-heading"><div><h2>Comercios afiliados</h2><p className="muted">Aprobación, disponibilidad y comisión por comercio.</p></div></div>
+        <div className="section-heading">
+          <div><h2>Comercios afiliados</h2><p className="muted">Aprobación, disponibilidad y comisión por comercio.</p></div>
+          <button disabled={busy} onClick={() => void seedDemoStores()}>Agregar tiendas de prueba</button>
+        </div>
         <div className="table-wrap"><table><thead><tr><th>Comercio</th><th>Responsable</th><th>Estado</th><th>Comisión</th><th>Acciones</th></tr></thead>
           <tbody>{stores.map((store) => <tr key={store.id}>
-            <td><strong>{store.name}</strong><small>{store.address}</small></td>
+            <td><strong>{store.name}</strong>{store.is_demo && <span className="badge demo">Prueba</span>}<small>{store.address}</small></td>
             <td>{store.owner_name}<small>{store.owner_email}</small></td>
             <td><span className={`badge ${store.approved && store.active ? "good" : "pending"}`}>{store.approved ? (store.active ? "Aprobado" : "Pausado") : "Pendiente"}</span></td>
             <td>{Number(store.commission_rate).toFixed(2)}%</td>
@@ -311,6 +351,7 @@ export default function App() {
                 const value = window.prompt("Comisión del comercio (%)", String(store.commission_rate));
                 if (value !== null) void updateStore(store, { commissionRate: Number(value) });
               }}>Comisión</button>
+              <button className="small delete" disabled={busy} onClick={() => void deleteStore(store)}>Eliminar</button>
             </td>
           </tr>)}</tbody>
         </table></div>

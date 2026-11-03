@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
-import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { pool } from "./db";
@@ -1156,11 +1156,176 @@ router.get("/admin/settings/commission", authenticate, allowRoles("admin"), asyn
 
 router.get("/admin/stores", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {
   const { rows } = await pool.query(
-    `SELECT s.*, u.name AS owner_name, u.email AS owner_email, c.name AS category_name
+    `SELECT s.*, s.name LIKE 'DEMO · %' AS is_demo, u.name AS owner_name, u.email AS owner_email, c.name AS category_name
      FROM stores s JOIN users u ON u.id = s.owner_id LEFT JOIN categories c ON c.id = s.category_id
      ORDER BY s.created_at DESC LIMIT 500`,
   );
   return res.json(rows);
+}));
+
+router.post("/admin/demo-stores", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {
+  const demoStores = [
+    {
+      slug: "mercado-esquina",
+      name: "DEMO · Mercado La Esquina",
+      owner: "Comercio de prueba CercaGo",
+      category: "Bodegas",
+      description: "Comercio de demostración con productos básicos para el hogar.",
+      address: "Av. Las Delicias, Maracay, Aragua",
+      latitude: 10.245,
+      longitude: -67.595,
+      imageUrl: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1000&q=85",
+      deliveryFee: 1.5,
+      estimatedDeliveryMinutes: 25,
+      products: [
+        ["Harina de maíz precocida", "Paquete de 1 kg", 1.5],
+        ["Arroz", "Paquete de 1 kg", 1.3],
+        ["Leche entera", "Envase de 1 litro", 1.6],
+        ["Huevos", "Cartón de 12 unidades", 3.2],
+        ["Aceite vegetal", "Botella de 1 litro", 2.8],
+      ],
+    },
+    {
+      slug: "panaderia-aurora",
+      name: "DEMO · Panadería Aurora",
+      owner: "Comercio de prueba CercaGo",
+      category: "Cafeterías",
+      description: "Panadería de demostración con pan recién horneado y café.",
+      address: "Calle Sucre, Maracay, Aragua",
+      latitude: 10.2462,
+      longitude: -67.5941,
+      imageUrl: "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=1000&q=85",
+      deliveryFee: 1.25,
+      estimatedDeliveryMinutes: 20,
+      products: [
+        ["Pan campesino", "Pieza recién horneada", 2.5],
+        ["Cachitos de jamón", "Paquete de 2 unidades", 2],
+        ["Golfeados", "Paquete de 2 unidades", 3],
+        ["Empanada de queso", "Preparada al momento", 1.5],
+        ["Café con leche", "Taza de 12 oz", 1.75],
+      ],
+    },
+    {
+      slug: "frutas-valle",
+      name: "DEMO · Frutas El Valle",
+      owner: "Comercio de prueba CercaGo",
+      category: "Supermercados",
+      description: "Frutería de demostración con frutas y verduras frescas.",
+      address: "Av. Bolívar, Maracay, Aragua",
+      latitude: 10.2415,
+      longitude: -67.589,
+      imageUrl: "https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=1000&q=85",
+      deliveryFee: 0,
+      estimatedDeliveryMinutes: 30,
+      products: [
+        ["Cambur", "Por kilogramo", 1.2],
+        ["Tomate", "Por kilogramo", 1.8],
+        ["Aguacate", "Por unidad", 2.5],
+        ["Naranja", "Por kilogramo", 1.5],
+        ["Cebolla", "Por kilogramo", 1.3],
+      ],
+    },
+  ] as const;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('cercago-demo-store-seed'))");
+    const categories = await client.query<{ id: string; name: string }>(
+      "SELECT id, name FROM categories WHERE active = TRUE",
+    );
+    const categoryIds = new Map(categories.rows.map((category) => [category.name, category.id]));
+    let createdStores = 0;
+    let createdProducts = 0;
+    let existingStores = 0;
+
+    for (const demoStore of demoStores) {
+      const existing = await client.query(
+        "SELECT id FROM stores WHERE name = $1",
+        [demoStore.name],
+      );
+      if (existing.rows[0]) {
+        existingStores += 1;
+        continue;
+      }
+
+      const categoryId = categoryIds.get(demoStore.category);
+      if (!categoryId) throw new Error(`No existe la categoría requerida: ${demoStore.category}`);
+
+      const ownerEmail = `demo-${demoStore.slug}-${randomBytes(4).toString("hex")}@example.invalid`;
+      const passwordHash = await bcrypt.hash(randomBytes(32).toString("base64url"), 12);
+      const owner = await client.query<{ id: string }>(
+        `INSERT INTO users(name, email, password_hash, role)
+         VALUES($1, $2, $3, 'store') RETURNING id`,
+        [`${demoStore.owner} ${demoStore.slug}`, ownerEmail, passwordHash],
+      );
+      const store = await client.query<{ id: string }>(
+        `INSERT INTO stores(owner_id, category_id, name, description, address, latitude, longitude,
+           image_url, delivery_fee, estimated_delivery_minutes, commission_rate, approved, active)
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+           COALESCE((SELECT (value #>> '{}')::numeric FROM app_settings WHERE key = 'default_commission_rate'), 10),
+           TRUE, TRUE)
+         RETURNING id`,
+        [owner.rows[0].id, categoryId, demoStore.name, demoStore.description, demoStore.address,
+          demoStore.latitude, demoStore.longitude, demoStore.imageUrl, demoStore.deliveryFee,
+          demoStore.estimatedDeliveryMinutes],
+      );
+
+      for (const [name, description, price] of demoStore.products) {
+        await client.query(
+          `INSERT INTO products(store_id, name, description, price, image_url, stock_quantity, in_stock)
+           VALUES($1, $2, $3, $4, $5, 25, TRUE)`,
+          [store.rows[0].id, name, description, price, demoStore.imageUrl],
+        );
+        createdProducts += 1;
+      }
+      createdStores += 1;
+    }
+
+    await client.query("COMMIT");
+    return res.status(createdStores ? 201 : 200).json({ createdStores, createdProducts, existingStores });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}));
+
+router.delete("/admin/stores/:storeId", authenticate, allowRoles("admin"), asyncHandler(async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const store = await client.query<{ id: string; owner_id: string }>(
+      "SELECT id, owner_id FROM stores WHERE id = $1 FOR UPDATE",
+      [req.params.storeId],
+    );
+    if (!store.rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Comercio no encontrado" });
+    }
+    const history = await client.query<{ has_history: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM orders WHERE store_id = $1)
+           OR EXISTS(SELECT 1 FROM reviews WHERE store_id = $1) AS has_history`,
+      [req.params.storeId],
+    );
+    if (history.rows[0].has_history) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "No se puede eliminar un comercio con pedidos o reseñas. Paúsalo para conservar su historial." });
+    }
+    await client.query("DELETE FROM stores WHERE id = $1", [req.params.storeId]);
+    await client.query(
+      "UPDATE users SET active = FALSE, updated_at = NOW() WHERE id = $1 AND role = 'store'",
+      [store.rows[0].owner_id],
+    );
+    await client.query("COMMIT");
+    return res.status(204).send();
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }));
 
 router.patch("/admin/stores/:storeId", authenticate, allowRoles("admin"), asyncHandler(async (req, res) => {
