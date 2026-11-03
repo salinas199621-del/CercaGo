@@ -14,7 +14,7 @@ import { HomeSplash } from "./src/components/HomeSplash";
 import { AppearanceProvider, useAppearance } from "./src/appearance";
 
 const Stack = createNativeStackNavigator();
-const CURRENT_APP_VERSION = "1.0.6";
+const CURRENT_APP_VERSION = "1.0.7";
 const VERSION_MANIFEST_URL = "https://salinas199621-del.github.io/CercaGo/app-version.json";
 
 function getVersionManifestUrl() {

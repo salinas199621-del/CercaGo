@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "apps/website/legacy-redirect.html"
+      - "apps/mobile/public/app-version.json"
+      - "apps/mobile/public/promotions.json"
       - ".github/workflows/deploy-cercago-web.yml"
   workflow_dispatch:
 
@@ -36,6 +38,8 @@ jobs:
           cp apps/website/legacy-redirect.html dist/index.html
           cp apps/website/legacy-redirect.html dist/admin/index.html
           cp apps/website/legacy-redirect.html dist/download/index.html
+          cp apps/mobile/public/app-version.json dist/app-version.json
+          cp apps/mobile/public/promotions.json dist/promotions.json
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
