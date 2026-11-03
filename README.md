@@ -66,7 +66,7 @@ El APK es una aplicación Android instalada en el teléfono y no depende de GitH
 
 4. En Expo, configura estas variables para el entorno **preview**:
    - `EXPO_PUBLIC_API_URL`: URL pública del API, por ejemplo `https://api.tudominio.com/api`. Es pública y queda incluida en el APK.
-   - `GOOGLE_MAPS_ANDROID_API_KEY`: clave de Google Maps restringida para Android y para el paquete `com.cercago.marketplace`. Es necesaria para que el mapa nativo muestre los mapas de Google; no la guardes en el repositorio.
+   - Para compilar temporalmente sin mapa, configura `EXPO_PUBLIC_NATIVE_MAPS_ENABLED=false`. El GPS y el guardado de coordenadas seguirán funcionando. Cuando tengas una clave de Google Maps restringida al paquete `com.cercago.marketplace`, configura `GOOGLE_MAPS_ANDROID_API_KEY` y cambia esa variable a `true`.
 5. Desde `apps\mobile`, compila el APK de prueba:
 
    ```powershell
