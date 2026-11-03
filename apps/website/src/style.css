@@ -24,11 +24,8 @@ button { font: inherit; }
 .section { padding-block: 100px; }
 .site-header { position: sticky; z-index: 20; top: 0; background: #ffffffed; border-bottom: 1px solid #e8efed; backdrop-filter: blur(14px); }
 .nav { height: 78px; display: flex; align-items: center; justify-content: space-between; }
-.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--teal); }
-.brand-mark { width: 36px; height: 36px; display: grid; place-items: center; color: white; font-size: 25px; line-height: 1; background: var(--teal); border-radius: 12px 12px 12px 4px; transform: rotate(-4deg); }
-.brand-mark svg { width: 100%; height: 100%; }
-.brand-word { font: 800 24px/1 "Aptos Display", "Segoe UI", sans-serif; letter-spacing: -1.6px; color: #173532; }
-.brand-word span { color: var(--teal); }
+.brand { display: inline-flex; align-items: center; color: var(--teal); }
+.brand-logo { display: block; width: 148px; height: auto; }
 .nav-links { display: flex; align-items: center; gap: 35px; color: #4b625e; font-size: 13px; font-weight: 700; }
 .nav-links > a:not(.button):hover, .text-link:hover, .footer-download:hover { color: var(--teal); }
 .button { min-height: 50px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 0 21px; border: 0; border-radius: 13px; font-size: 14px; font-weight: 800; transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
@@ -67,10 +64,7 @@ h1 span { color: var(--teal); }
 .orbit-one { width: 370px; height: 275px; }
 .orbit-two { width: 450px; height: 340px; border-color: #d3ebe5; transform: rotate(28deg); }
 .art-pin { position: absolute; top: 50px; left: 50%; z-index: 2; width: 160px; height: 185px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 20px; color: white; background: var(--teal); border: 10px solid #ffffffb8; border-radius: 80px 80px 80px 14px; box-shadow: 0 22px 48px #0a82752e; transform: translateX(-50%) rotate(-45deg); }
-.art-pin span, .art-pin strong, .art-pin i { transform: rotate(45deg); }
-.art-pin span { margin-top: 5px; margin-left: 5px; font: 700 22px "Aptos Display", "Segoe UI", sans-serif; }
-.art-pin strong { margin-top: -3px; margin-left: 6px; color: #ffd3bd; font: 800 29px "Aptos Display", "Segoe UI", sans-serif; }
-.art-pin i { margin-top: 2px; margin-left: 4px; color: white; font: normal 31px/1 sans-serif; }
+.art-pin i { color: white; font: normal 42px/1 sans-serif; transform: rotate(45deg); }
 .market-bag { position: absolute; bottom: 60px; left: 50%; z-index: 3; width: 190px; height: 190px; filter: drop-shadow(0 20px 14px #153d3523); transform: translateX(-50%); }
 .bag-body { position: absolute; bottom: 0; left: 10px; width: 170px; height: 137px; overflow: hidden; background: #f27745; clip-path: polygon(8% 0,92% 0,80% 100%,20% 100%); border-radius: 8px 8px 25px 25px; }
 .bag-handle { position: absolute; left: 57px; top: 3px; z-index: 2; width: 76px; height: 54px; border: 12px solid #d45e35; border-bottom: 0; border-radius: 48px 48px 0 0; }
@@ -164,8 +158,7 @@ h2 { margin-bottom: 0; color: var(--ink); font-size: clamp(34px, 4vw, 48px); lin
 
 .footer { background: #f6f9f8; }
 .footer-main { min-height: 123px; display: flex; align-items: center; justify-content: space-between; gap: 25px; }
-.brand-footer .brand-mark { width: 32px; height: 32px; font-size: 22px; }
-.brand-footer .brand-word { font-size: 21px; }
+.brand-footer .brand-logo { width: 132px; }
 .footer-main > p { margin: 0 auto 0 20px; color: #7a8b86; font-size: 11px; line-height: 1.6; }
 .footer-download { color: #3d5d56; font-size: 12px; font-weight: 800; }
 .footer-download span { margin-left: 5px; color: var(--teal); }
@@ -187,8 +180,7 @@ h2 { margin-bottom: 0; color: var(--ink); font-size: clamp(34px, 4vw, 48px); lin
   html { scroll-padding-top: 74px; }
   .shell { width: min(var(--shell), calc(100% - 36px)); }
   .nav { height: 68px; }
-  .brand-mark { width: 32px; height: 32px; }
-  .brand-word { font-size: 22px; }
+  .brand-logo { width: 132px; }
   .menu-toggle { width: 42px; height: 42px; display: grid; place-content: center; gap: 5px; border: 1px solid var(--line); border-radius: 12px; background: white; }
   .menu-toggle span { width: 17px; height: 2px; background: var(--ink); transition: transform .18s ease; }
   .menu-toggle[aria-expanded="true"] span:first-child { transform: translateY(3.5px) rotate(45deg); }

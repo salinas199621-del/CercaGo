@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import cercaGoLogo from "../../mobile/public/cercago-logo.png";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 type User = { id: string; name: string; email: string; role: string; active: boolean };
@@ -130,7 +131,8 @@ export default function App() {
   if (!token) return (
     <main className="login-shell">
       <form className="login-card" onSubmit={(event) => void login(event)}>
-        <p className="eyebrow">CERCAGO · SUPERADMIN</p>
+        <img className="admin-logo" src={cercaGoLogo} alt="CercaGo" />
+        <p className="eyebrow">SUPERADMIN</p>
         <h1>Administración</h1>
         <p>Ingresa con una cuenta autorizada.</p>
         <label>Correo<input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
@@ -144,7 +146,7 @@ export default function App() {
   return (
     <main className="dashboard">
       <header className="topbar">
-        <div><p className="eyebrow">CERCAGO · SUPERADMIN</p><h1>Panel de administración</h1></div>
+        <div className="topbar-brand"><img className="admin-logo" src={cercaGoLogo} alt="CercaGo" /><div><p className="eyebrow">SUPERADMIN</p><h1>Panel de administración</h1></div></div>
         <button className="outline" onClick={logout}>Cerrar sesión</button>
       </header>
       {error && <p className="error">{error}</p>}
