@@ -57,13 +57,12 @@ jobs:
       - name: Build mobile web app
         working-directory: apps/mobile
         env:
-          VITE_API_URL: ${{ vars.CERCAGO_API_URL }}
+          VITE_API_URL: ${{ vars.CERCAGO_API_URL || 'https://cercago.onrender.com/api' }}
         run: npm run build:web
 
       - name: Build administration panel
-        if: ${{ vars.CERCAGO_API_URL != '' }}
         env:
-          VITE_API_URL: ${{ vars.CERCAGO_API_URL }}
+          VITE_API_URL: ${{ vars.CERCAGO_API_URL || 'https://cercago.onrender.com/api' }}
           VITE_BASE_PATH: ${{ env.VITE_ADMIN_BASE_PATH }}
         run: |
           npm run build -w @cercago/admin
