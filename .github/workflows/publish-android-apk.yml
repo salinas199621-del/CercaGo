@@ -12,6 +12,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Download APK from EAS
         env:
           APK_URL: https://expo.dev/artifacts/eas/D-da9fFhtZEmTFIK3mTztkzzxUmfdtSfs-e2SWbDtB4.apk
