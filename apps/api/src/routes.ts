@@ -1,6 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { pool } from "./db";
@@ -11,11 +13,12 @@ import type { AuthRequest } from "./types";
 
 const router = Router();
 const googleOAuthClient = new OAuth2Client();
+const passwordSchema = z.string().min(10).refine((value) => Buffer.byteLength(value, "utf8") <= 72, "La contraseña no puede superar 72 bytes");
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(255),
-  phone: z.string().trim().max(32).optional(),
-  password: z.string().min(10).refine((value) => Buffer.byteLength(value, "utf8") <= 72, "La contraseña no puede superar 72 bytes"),
+  phone: z.string().trim().regex(/^\+58\d{10}$/, "El teléfono debe tener formato +58 seguido de 10 dígitos"),
+  password: passwordSchema,
   role: z.enum(["customer", "store", "driver"]).default("customer"),
   store: z.object({
     name: z.string().trim().min(2).max(160),
@@ -38,8 +41,77 @@ async function getStoreIdForOwner(userId: string) {
 function tokenFor(user: { id: string; role: string; name: string }) {
   return jwt.sign({ role: user.role, name: user.name }, jwtSecret(), {
     subject: user.id,
-    expiresIn: (process.env.JWT_EXPIRES_IN || "1d") as NonNullable<jwt.SignOptions["expiresIn"]>,
+    expiresIn: (process.env.JWT_EXPIRES_IN || "30d") as NonNullable<jwt.SignOptions["expiresIn"]>,
   });
+}
+
+function normalizePhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const national = digits.startsWith("58") ? digits.slice(2) : digits.startsWith("0") ? digits.slice(1) : digits;
+  return national.length === 10 ? `+58${national}` : null;
+}
+
+function resetCodeHash(userId: string, code: string) {
+  return createHmac("sha256", jwtSecret()).update(`${userId}:${code}`).digest();
+}
+
+function passwordResetDeliveryConfigured(isEmail: boolean) {
+  if (isEmail) {
+    return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD && process.env.SMTP_FROM);
+  }
+  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM);
+}
+
+async function deliverPasswordResetCode(destination: string, code: string, isEmail: boolean) {
+  if (isEmail) {
+    const { SMTP_HOST, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
+    const port = Number(process.env.SMTP_PORT || 587);
+    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD || !SMTP_FROM || !Number.isInteger(port)) {
+      throw new Error("El envío de correo para recuperación no está configurado.");
+    }
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port,
+      secure: port === 465,
+      requireTLS: port !== 465,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
+      auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
+    });
+    await transporter.sendMail({
+      from: SMTP_FROM,
+      to: destination,
+      subject: "Código para recuperar tu cuenta CercaGo",
+      text: `Tu código de recuperación CercaGo es ${code}. Vence en 10 minutos. Si no solicitaste este código, ignora este mensaje.`,
+    });
+    return;
+  }
+
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM } = process.env;
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM) {
+    throw new Error("El envío de SMS para recuperación no está configurado.");
+  }
+  const form = new URLSearchParams({
+    To: destination,
+    From: TWILIO_FROM,
+    Body: `Tu código de recuperación CercaGo es ${code}. Vence en 10 minutos.`,
+  });
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`El proveedor de SMS respondió HTTP ${response.status}`);
+}
+
+function userIdentifier(identifier: string) {
+  if (identifier.includes("@")) return { isEmail: true, value: identifier.trim().toLowerCase() };
+  return { isEmail: false, value: normalizePhone(identifier) };
 }
 
 router.post("/auth/register", asyncHandler(async (req, res) => {
@@ -54,7 +126,7 @@ router.post("/auth/register", asyncHandler(async (req, res) => {
       `INSERT INTO users(name, email, phone, password_hash, role)
        VALUES ($1, LOWER($2), $3, $4, $5)
        RETURNING id, name, email, phone, role`,
-      [input.name, input.email, input.phone ?? null, passwordHash, input.role],
+      [input.name, input.email, input.phone, passwordHash, input.role],
     );
     const user = userResult.rows[0];
     if (input.store) {
@@ -69,7 +141,7 @@ router.post("/auth/register", asyncHandler(async (req, res) => {
     return res.status(201).json({ user, token: tokenFor(user) });
   } catch (error) {
     await client.query("ROLLBACK");
-    if ((error as { code?: string }).code === "23505") return res.status(409).json({ error: "El correo ya está registrado" });
+    if ((error as { code?: string }).code === "23505") return res.status(409).json({ error: "El correo o teléfono ya está registrado" });
     throw error;
   } finally {
     client.release();
@@ -77,17 +149,103 @@ router.post("/auth/register", asyncHandler(async (req, res) => {
 }));
 
 router.post("/auth/login", asyncHandler(async (req, res) => {
-  const input = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
+  const input = z.object({ identifier: z.string().trim().min(1).max(255), password: z.string().min(1) }).parse(req.body);
+  const { isEmail, value } = userIdentifier(input.identifier);
   const result = await pool.query(
-    "SELECT id, name, email, phone, role, password_hash, active FROM users WHERE email = LOWER($1)",
-    [input.email],
+    "SELECT id, name, email, phone, role, password_hash, active FROM users WHERE ($1::text IS NOT NULL AND email = LOWER($1)) OR ($2::text IS NOT NULL AND phone = $2)",
+    [isEmail ? value : null, isEmail ? null : value],
   );
   const user = result.rows[0];
   if (!user || !user.active || !user.password_hash || !(await bcrypt.compare(input.password, user.password_hash))) {
-    return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+    return res.status(401).json({ error: "Correo/teléfono o contraseña incorrectos" });
   }
   const { password_hash: _passwordHash, active: _active, ...safeUser } = user;
   return res.json({ user: safeUser, token: tokenFor(user) });
+}));
+
+router.post("/auth/password-reset/request", asyncHandler(async (req, res) => {
+  const input = z.object({ identifier: z.string().trim().min(1).max(255) }).parse(req.body);
+  const { isEmail, value } = userIdentifier(input.identifier);
+  if (!value) return res.status(202).json({ message: "Si la cuenta existe, enviaremos un código de recuperación." });
+  if (!passwordResetDeliveryConfigured(isEmail)) {
+    return res.status(503).json({ error: `La recuperación por ${isEmail ? "correo" : "SMS"} no está configurada.` });
+  }
+  const { rows } = await pool.query(
+    `SELECT id, email, phone FROM users WHERE active = TRUE AND ${isEmail ? "email = LOWER($1)" : "phone = $1"} LIMIT 1`,
+    [value],
+  );
+  const user = rows[0] as { id: string; email: string; phone: string | null } | undefined;
+  if (!user) return res.status(202).json({ message: "Si la cuenta existe, enviaremos un código de recuperación." });
+
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  await pool.query(
+    `INSERT INTO password_reset_codes(user_id, code_hash, expires_at, attempts, created_at)
+     VALUES ($1, $2, NOW() + INTERVAL '10 minutes', 0, NOW())
+     ON CONFLICT (user_id) DO UPDATE
+       SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0, created_at = NOW()`,
+    [user.id, resetCodeHash(user.id, code)],
+  );
+  try {
+    const destination = isEmail ? user.email : user.phone;
+    if (!destination) throw new Error("La cuenta no tiene un medio de recuperación registrado.");
+    await deliverPasswordResetCode(destination, code, isEmail);
+  } catch (error) {
+    await pool.query("DELETE FROM password_reset_codes WHERE user_id = $1", [user.id]);
+    console.error("No se pudo entregar el código de recuperación", error);
+    return res.status(503).json({ error: "No se pudo enviar el código. Intenta de nuevo más tarde." });
+  }
+  return res.status(202).json({ message: "Si la cuenta existe, enviaremos un código de recuperación." });
+}));
+
+router.post("/auth/password-reset/confirm", asyncHandler(async (req, res) => {
+  const input = z.object({
+    identifier: z.string().trim().min(1).max(255),
+    code: z.string().regex(/^\d{6}$/),
+    password: passwordSchema,
+  }).parse(req.body);
+  const { isEmail, value } = userIdentifier(input.identifier);
+  if (!value) return res.status(400).json({ error: "El código no es válido o venció." });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const userResult = await client.query(
+      `SELECT id FROM users WHERE active = TRUE AND ${isEmail ? "email = LOWER($1)" : "phone = $1"} LIMIT 1 FOR UPDATE`,
+      [value],
+    );
+    const user = userResult.rows[0] as { id: string } | undefined;
+    if (!user) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "El código no es válido o venció." });
+    }
+    const resetResult = await client.query(
+      "SELECT code_hash, expires_at, attempts FROM password_reset_codes WHERE user_id = $1 FOR UPDATE",
+      [user.id],
+    );
+    const reset = resetResult.rows[0] as { code_hash: Buffer; expires_at: Date; attempts: number } | undefined;
+    if (!reset || reset.attempts >= 5 || new Date(reset.expires_at).getTime() <= Date.now()) {
+      await client.query("DELETE FROM password_reset_codes WHERE user_id = $1", [user.id]);
+      await client.query("COMMIT");
+      return res.status(400).json({ error: "El código no es válido o venció." });
+    }
+    const expected = resetCodeHash(user.id, input.code);
+    const received = Buffer.isBuffer(reset.code_hash) ? reset.code_hash : Buffer.from(String(reset.code_hash), "hex");
+    if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+      await client.query("UPDATE password_reset_codes SET attempts = attempts + 1 WHERE user_id = $1", [user.id]);
+      await client.query("COMMIT");
+      return res.status(400).json({ error: "El código no es válido o venció." });
+    }
+    const passwordHash = await bcrypt.hash(input.password, 12);
+    await client.query("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2", [passwordHash, user.id]);
+    await client.query("DELETE FROM password_reset_codes WHERE user_id = $1", [user.id]);
+    await client.query("COMMIT");
+    return res.json({ message: "Contraseña actualizada." });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }));
 
 router.post("/auth/google", asyncHandler(async (req, res) => {
@@ -179,7 +337,34 @@ router.post("/auth/google", asyncHandler(async (req, res) => {
   }
 }));
 
-router.get("/auth/me", authenticate, (req, res) => res.json({ user: actor(req as AuthRequest) }));
+router.get("/auth/me", authenticate, asyncHandler(async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT id, name, email, phone, role FROM users WHERE id = $1",
+    [actor(req as AuthRequest).id],
+  );
+  return res.json({ user: rows[0] });
+}));
+
+router.patch("/auth/me", authenticate, asyncHandler(async (req, res) => {
+  const input = z.object({
+    name: z.string().trim().min(2).max(120),
+    email: z.string().trim().email().max(255),
+    phone: z.string().trim().regex(/^\+58\d{10}$/).nullable(),
+  }).parse(req.body);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET name = $1, email = LOWER($2), phone = $3, updated_at = NOW()
+       WHERE id = $4 RETURNING id, name, email, phone, role`,
+      [input.name, input.email, input.phone, actor(req as AuthRequest).id],
+    );
+    return res.json({ user: rows[0] });
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "El correo o teléfono ya está registrado" });
+    }
+    throw error;
+  }
+}));
 
 router.get("/categories", asyncHandler(async (_req, res) => {
   const { rows } = await pool.query("SELECT id, name, icon_url FROM categories WHERE active = TRUE ORDER BY name");
@@ -633,7 +818,10 @@ router.post("/orders/:orderId/messages", authenticate, asyncHandler(async (req, 
   const user = actor(req as AuthRequest);
   const input = z.object({
     message: z.string().trim().max(2000).optional(),
-    attachmentUrl: z.string().url().refine((value) => /^https?:\/\//i.test(value), "El enlace debe usar HTTP o HTTPS").optional(),
+    attachmentUrl: z.string().max(760_000).refine(
+      (value) => /^https?:\/\//i.test(value) || /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value),
+      "Adjunta una foto JPEG, PNG o WebP válida, o un enlace HTTP/HTTPS",
+    ).optional(),
     paymentReference: z.string().trim().max(120).optional(),
   }).refine((value) => Boolean(value.message || value.attachmentUrl || value.paymentReference)).parse(req.body);
   if (!await canAccessOrder(req.params.orderId, user.id)) return res.status(404).json({ error: "Pedido no encontrado" });
@@ -643,7 +831,7 @@ router.post("/orders/:orderId/messages", authenticate, asyncHandler(async (req, 
       return res.status(409).json({ error: "Espera la confirmación del comercio antes de transferir y enviar el comprobante" });
     }
   }
-  if (user.role === "store" && input.message === "Pago recibido y verificado") {
+  if (user.role === "store" && ["Pago recibido", "Pago recibido y verificado"].includes(input.message ?? "")) {
     const proof = await pool.query(
       `SELECT 1 FROM order_messages
        WHERE order_id = $1 AND sender_id = (SELECT customer_id FROM orders WHERE id = $1)

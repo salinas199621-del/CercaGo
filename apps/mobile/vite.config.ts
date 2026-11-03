@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
       extensions: [".web.tsx", ".web.ts", ".web.jsx", ".web.js", ".tsx", ".ts", ".jsx", ".js", ".json"],
     },
     define: {
+      global: "globalThis",
       "process.env.CERCAGO_API_URL": JSON.stringify(apiUrl),
     },
     build: {

@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Loading, styles } from "../components/UI";
 import { formatDualPrice } from "../currency";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { useAppearance } from "../appearance";
 import type { Order } from "../types";
 import { socket } from "./socketRef";
 
@@ -20,6 +21,7 @@ interface AvailableDelivery extends Order {
 
 export function DriverScreen() {
   const { session, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { theme } = useAppearance();
   const token = session!.token;
   const [available, setAvailable] = useState<AvailableDelivery[]>([]);
   const [mine, setMine] = useState<Order[]>([]);
@@ -94,28 +96,28 @@ export function DriverScreen() {
 
   if (loading) return <Loading />;
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.content}>
-      <View style={{ backgroundColor: "#F45B3C", borderRadius: 24, padding: 21, gap: 9 }}>
-        <Text style={{ color: "#FFE6DC", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>CERCA DE TI, EN MOVIMIENTO</Text>
+    <ScrollView style={[styles.page, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
+      <View style={{ backgroundColor: theme.primaryDark, borderRadius: 24, padding: 21, gap: 9 }}>
+        <Text style={{ color: "#D8FFFA", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>CERCA DE TI, EN MOVIMIENTO</Text>
         <Text style={{ color: "#fff", fontSize: 26, fontWeight: "900" }}>¡Hola, {session!.user.name.split(" ")[0]}! 🛵</Text>
-        <Text style={{ color: "#FFF4F0", fontSize: 13 }}>Tu próxima entrega está a unos minutos.</Text>
+        <Text style={{ color: "#E8FFFC", fontSize: 13 }}>Tu próxima entrega está a unos minutos.</Text>
         <View style={{ flexDirection: "row", gap: 9, marginTop: 5 }}>
           {[{ value: String(mine.length), label: "EN CURSO" }, { value: String(available.length), label: "CERCA DE TI" }].map((item) => (
             <View key={item.label} style={{ flex: 1, backgroundColor: "#FFFFFF25", borderRadius: 15, padding: 12 }}>
               <Text style={{ color: "#fff", fontSize: 21, fontWeight: "900" }}>{item.value}</Text>
-              <Text style={{ color: "#FFE6DC", fontSize: 9, fontWeight: "800", marginTop: 3 }}>{item.label}</Text>
+              <Text style={{ color: "#D8FFFA", fontSize: 9, fontWeight: "800", marginTop: 3 }}>{item.label}</Text>
             </View>
           ))}
         </View>
       </View>
       <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
-      <Text style={styles.subtitle}>Las ofertas se actualizan con tu ubicación.</Text>
+      <Text style={[styles.subtitle, { color: theme.muted }]}>Las ofertas se actualizan con tu ubicación.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Text style={styles.section}>Mis entregas</Text>
+      <Text style={[styles.section, { color: theme.ink }]}>Mis entregas</Text>
       {mine.map((order) => (
         <Card key={order.id}>
-          <View style={styles.row}><Text style={{ color: "#191B22", fontWeight: "900", fontSize: 16 }}>{order.store_name}</Text><Text style={{ color: "#D8482D", fontWeight: "900", fontSize: 11 }}>{order.status.toUpperCase()}</Text></View>
-          <Text>Cliente: {order.delivery_address}</Text>
+          <View style={styles.row}><Text style={{ color: "#191B22", fontWeight: "900", fontSize: 16 }}>{order.store_name}</Text><Text style={{ color: "#028090", fontWeight: "900", fontSize: 11 }}>{order.status.toUpperCase()}</Text></View>
+          <Text style={{ color: theme.ink }}>Cliente: {order.delivery_address}</Text>
           <Button title="Ruta al comercio" secondary onPress={() => openMap(order.store_address ?? order.store_name ?? "")} />
           {order.status === "ready" && <Button title="Confirmar retiro" onPress={() => void updateStatus(order, "picked_up")} />}
           {order.status === "picked_up" && <>
@@ -124,18 +126,18 @@ export function DriverScreen() {
           </>}
         </Card>
       ))}
-      {!mine.length && <Text style={styles.subtitle}>Aún no tienes entregas asignadas.</Text>}
-      <Text style={styles.section}>Disponibles</Text>
+      {!mine.length && <Text style={[styles.subtitle, { color: theme.muted }]}>Aún no tienes entregas asignadas.</Text>}
+      <Text style={[styles.section, { color: theme.ink }]}>Disponibles</Text>
       {available.map((delivery) => (
         <Card key={delivery.delivery_id}>
           <Text style={{ fontWeight: "700" }}>{delivery.store_name} · {formatDualPrice(delivery.total, delivery.exchange_rate ?? exchangeRate)}</Text>
-          <Text style={styles.subtitle}>Retiro: {delivery.store_address}</Text>
-          <Text style={styles.subtitle}>Entrega: {delivery.delivery_address}</Text>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>Retiro: {delivery.store_address}</Text>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>Entrega: {delivery.delivery_address}</Text>
           <Button title="Ver ruta al comercio" secondary onPress={() => openMap(delivery.store_address)} />
           <Button title="Aceptar entrega" onPress={() => void accept(delivery)} />
         </Card>
       ))}
-      {!available.length && <Text style={styles.subtitle}>No hay pedidos listos cerca en este momento.</Text>}
+      {!available.length && <Text style={[styles.subtitle, { color: theme.muted }]}>No hay pedidos listos cerca en este momento.</Text>}
     </ScrollView>
   );
 }

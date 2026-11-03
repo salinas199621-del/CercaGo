@@ -12,26 +12,33 @@ Marketplace local con API REST, PostgreSQL, Socket.IO, app React Native para cli
 
 1. Copia `apps/api/.env.example` a `apps/api/.env` y configura PostgreSQL, un `JWT_SECRET` aleatorio de al menos 32 caracteres y las variables iniciales de administrador (contraseña de al menos 16 caracteres).
 2. Crea la base de datos y ejecuta `apps/api/sql/schema.sql`.
-   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 004 de `apps/api/sql/migrations/`. La migración `005_app_settings.sql` puede ejecutarse también de forma segura para asegurar la tabla de configuración y sus valores iniciales.
-3. Ejecuta `apps/api/sql/seed_catalog.sql` después de crear los comercios para cargar seis productos de ejemplo por comercio, según su categoría.
-4. Desde la raíz ejecuta `npm install`.
-5. Crea la cuenta de administración inicial con `npm run create-admin -w @cercago/api`.
-6. En terminales separadas ejecuta `npm run dev:api`, `npm run dev:mobile` y `npm run dev:admin`.
+   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 006 de `apps/api/sql/migrations/`. Antes de aplicar `006_account_recovery.sql`, revisa teléfonos duplicados con `SELECT phone, COUNT(*) FROM users WHERE phone IS NOT NULL AND phone <> '' GROUP BY phone HAVING COUNT(*) > 1;` y resuélvelos manualmente; la migración crea un índice único y no modifica registros existentes.
+3. Desde la raíz ejecuta `npm install`.
+4. Crea la cuenta de administración inicial con `npm run create-admin -w @cercago/api`.
+5. En terminales separadas ejecuta `npm run dev:api`, `npm run dev:mobile` y `npm run dev:admin`.
 
-En la pantalla de acceso puedes entrar a la demo como cliente, comercio o repartidor. Los perfiles de demo usan datos locales; el tipo de cambio sí consulta el endpoint público de la API. Sin API disponible se indica que no hay tasa, en lugar de mostrar un valor inventado.
+No hay cuentas, pedidos ni comercios de prueba en el acceso. Crea usuarios con el formulario de registro y afilia comercios reales desde la administración. El acceso admite correo o teléfono venezolano +58; la sesión nativa se protege con Keychain/Keystore y el JWT dura 30 días por defecto (`JWT_EXPIRES_IN`). El cliente puede editar nombre, correo y teléfono desde su perfil; el número se almacena en formato canónico +58. Para activar la recuperación de contraseña configura SMTP para correo y/o Twilio para SMS en el entorno del API. La tasa consulta DolarAPI, después el servidor y finalmente la última tasa oficial guardada en el dispositivo.
 
 ## Publicar y probar la web
 
 La página principal se sirve desde Render en [cercago.onrender.com](https://cercago.onrender.com). El mismo servicio sirve la app web en `/`, el API en `/api` y Socket.IO en el mismo dominio. Al desplegar cambios, Render compila la API y la web con Vite; la URL para descargar el APK es [cercago.onrender.com/download/](https://cercago.onrender.com/download/).
 
-La cotización oficial en bolívares se consulta primero desde el BCV. Si su certificado HTTPS no permite una conexión segura, CercaGo usa como respaldo el endpoint oficial de DolarAPI, valida que corresponda a USD y a la tasa oficial, y guarda su fecha de actualización. El servidor comprueba la tasa al iniciar y cada hora; los pedidos guardan la tasa vigente al momento de crearse.
+La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y desde el BCV/DolarAPI en el servidor. La app valida que DolarAPI responda con USD y fuente oficial, conserva la última tasa válida en el dispositivo como respaldo y muestra su fecha. El servidor comprueba la tasa al iniciar y cada hora; los pedidos guardan la tasa vigente al momento de crearse.
 
-GitHub Pages continúa disponible como demo alternativa y no instala una app nativa:
+## Banners y actualizaciones de la app
 
-GitHub Pages publica una copia web de la app. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, configura el API y PostgreSQL como se indica abajo.
+Los anuncios del Home se definen en `apps/mobile/public/promotions.json`. Cada entrada admite `mediaType` (`image` o `video`), una URL HTTPS en `mediaUrl`, texto, color `tint` y un `linkUrl` HTTPS opcional. En web, los videos usan HTML5 con reproducción automática silenciada. La app obtiene el manifiesto publicado y permite guardar una configuración local desde **Menú → Ajustes**; actualizar el JSON publicado no requiere reinstalar el APK.
+
+`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. Cuando se publique una nueva versión nativa, actualiza este manifiesto después de publicar el APK. La web puede recargarse para recibir nuevos archivos; Android abre la descarga y requiere la confirmación de instalación del APK. No se borran los datos de sesión.
+
+Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
+
+GitHub Pages puede publicar la versión web de CercaGo; no instala una app nativa:
+
+La web requiere API y PostgreSQL configurados para cuentas, pedidos y chat reales.
 
 1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
-2. Abre **Actions** y espera a que termine el workflow **Deploy CercaGo demo**. El sitio público de este repositorio es [CercaGo](https://salinas199621-del.github.io/CercaGo/).
+2. Abre **Actions** y espera a que termine el workflow de despliegue web. El sitio público de este repositorio es [CercaGo](https://salinas199621-del.github.io/CercaGo/).
 3. Después de cada `git push` a `main`, GitHub volverá a publicar el sitio. No subas archivos `.env` ni secretos al repositorio.
 4. Cuando configures `CERCAGO_API_URL` en las variables de Actions como se explica abajo, el mismo despliegue publicará el panel admin en `https://salinas199621-del.github.io/CercaGo/admin/`.
 
@@ -43,11 +50,13 @@ El repositorio incluye `render.yaml` para desplegar la API Node en Render. Para 
 
 1. Crea un proyecto PostgreSQL en Neon y copia la cadena de conexión (usa la cadena recomendada por Neon con SSL). No la compartas ni la guardes en Git.
 2. En Render, crea un **Blueprint** conectado a este repositorio y acepta `render.yaml`. Configura `DATABASE_URL` con la cadena de Neon cuando Render la solicite. `JWT_SECRET` se genera automáticamente y `CLIENT_ORIGIN` permite el sitio web de GitHub Pages.
-3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Solo para una base ya existente, aplica las migraciones 001, 002, 003 y 004 en ese orden.
+3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Para una base ya existente, aplica en orden las migraciones 001 a 006.
 4. En Render, espera a que el servicio `cercago-api` esté activo. Comprueba `https://TU-API.onrender.com/health`; debe responder `{"status":"ok"}`.
 5. Crea el administrador inicial ejecutando `npm run create-admin -w @cercago/api` desde tu equipo, con `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y una contraseña de 16–72 bytes configurados temporalmente en la terminal. No añadas esos valores al repositorio.
 6. En GitHub abre **Settings → Secrets and variables → Actions → Variables** y crea `CERCAGO_API_URL` con la URL del API más `/api`, por ejemplo `https://cercago-api.onrender.com/api`.
-7. En **Actions**, vuelve a ejecutar **Deploy CercaGo demo**. El build incorporará la URL pública del API y publicará tanto la app como el panel de administración. La tasa BCV, el acceso a cuentas reales y la sincronización entre dispositivos dependerán de que la API y la base de datos estén disponibles.
+7. En **Actions**, vuelve a ejecutar el workflow de despliegue web. El build incorporará la URL pública del API y publicará tanto la app como el panel de administración.
+
+Para restablecer contraseña, configura SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) y/o Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`) como variables secretas del servicio API. Sin un proveedor configurado, el API no simula el envío del código.
 
 ## Inicio de sesión con Google (pospuesto)
 
@@ -75,11 +84,11 @@ La página pública ofrece la descarga en `https://salinas199621-del.github.io/C
    El APK se genera en `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Descárgalo en Android, permite la instalación desde esa fuente si el sistema lo solicita y abre el archivo.
 6. Para distribuir una versión, publica una etiqueta nueva con formato `apk-vX.Y.Z`; GitHub Actions compilará el APK nativo y lo adjuntará al Release.
 
-El APK usa cuentas/API reales cuando está conectado. Los botones de demo sirven para probar la interfaz, pero sus pedidos y chats locales no se comparten entre teléfonos. Para sincronización real, usa cuentas del backend desplegado.
+El APK necesita una URL HTTPS de API accesible desde el teléfono. Crea cuentas desde Registro; el perfil, tema y avatar se conservan en el dispositivo. Los temas disponibles son Turquesa, Azul Marino, Naranja Vibrante, Verde Esmeralda y Modo Oscuro.
 
 El API corre en `http://localhost:4000`; la web móvil y el panel en `http://localhost:5173`. Para una app nativa instalada en un teléfono durante desarrollo, configura `CERCAGO_API_URL` con la IP LAN de tu PC, mantén ambos dispositivos en la misma red y deja el API encendido. Si Windows Firewall pregunta, permite Node.js en la red privada.
 
-La demo de los botones de acceso guarda los chats solo en el almacenamiento local del navegador: sirve para probar ambos roles en el mismo navegador, pero no sincroniza mensajes entre teléfonos. Para conversar entre dispositivos, inicia sesión con cuentas de la API y mantén API, PostgreSQL y Socket.IO activos. El chat consulta mensajes periódicamente como respaldo si la conexión en tiempo real se interrumpe.
+El chat y los pedidos requieren API, PostgreSQL y Socket.IO activos. El chat consulta mensajes periódicamente como respaldo si la conexión en tiempo real se interrumpe.
 
 Las direcciones pueden guardar coordenadas mediante GPS. En el teléfono, el navegador requiere HTTPS para conceder ubicación; para probar en una red local HTTP usa una app nativa o abre la versión web publicada por HTTPS. El mapa web usa OpenStreetMap; el mapa nativo de Android está pendiente de configuración.
 

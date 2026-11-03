@@ -1,4 +1,4 @@
-name: Deploy CercaGo demo
+name: Deploy CercaGo web
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     paths:
       - "apps/mobile/**"
       - "apps/admin/**"
-      - ".github/workflows/deploy-mobile-demo.yml"
+      - ".github/workflows/deploy-cercago-web.yml"
       - "package-lock.json"
       - "package.json"
       - "render.yaml"

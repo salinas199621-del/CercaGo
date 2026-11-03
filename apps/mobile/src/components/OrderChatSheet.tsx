@@ -1,18 +1,17 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Linking, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Image, Linking, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { Button, styles } from "./UI";
 import type { Order, OrderMessage, Role } from "../types";
 import { socket } from "../screens/socketRef";
-import { getDemoMessagesStorageKey, isDemoMode, readDemoMessages } from "../demoApi";
+import { ReceiptPhotoPicker } from "./ReceiptPhotoPicker";
 
 const quickReplies = [
   "Pedido confirmado, esperando pago",
   "Datos de Pago Móvil enviados",
-  "Pago recibido y verificado",
-  "Pedido en preparación",
-  "Pedido en camino",
+  "Pago recibido",
+  "En preparación",
 ];
 
 export function OrderChatSheet({ order, role, onClose }: {
@@ -28,13 +27,12 @@ export function OrderChatSheet({ order, role, onClose }: {
   const [attachmentUrl, setAttachmentUrl] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [paymentDetailsVisible, setPaymentDetailsVisible] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!order) return;
     try {
-      setMessages(isDemoMode()
-        ? readDemoMessages(order.id, true)
-        : await api<OrderMessage[]>(`/orders/${order.id}/messages`, token));
+      setMessages(await api<OrderMessage[]>(`/orders/${order.id}/messages`, token));
       setError("");
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo cargar el chat"); }
@@ -46,16 +44,11 @@ export function OrderChatSheet({ order, role, onClose }: {
     const receive = (next: OrderMessage) => {
       if (next.order_id === order.id) setMessages((current) => current.some((item) => item.id === next.id) ? current : [...current, next]);
     };
-    const syncDemoMessages = (event: StorageEvent) => {
-      if (event.key === getDemoMessagesStorageKey()) setMessages(readDemoMessages(order.id, true));
-    };
     socket?.on("order:message", receive);
-    if (typeof window !== "undefined") window.addEventListener("storage", syncDemoMessages);
     const timer = setInterval(() => { void refresh(); }, 3000);
     return () => {
       clearInterval(timer);
       socket?.off("order:message", receive);
-      if (typeof window !== "undefined") window.removeEventListener("storage", syncDemoMessages);
     };
   }, [order, refresh]);
 
@@ -100,18 +93,16 @@ export function OrderChatSheet({ order, role, onClose }: {
               <Text style={{ color: "#667085", fontSize: 12 }}>Espera la confirmación de la tienda antes de transferir.</Text>
             </View>
           )}
-          {isDemoMode() && (
-            <View style={{ backgroundColor: "#FFF7E8", borderRadius: 12, padding: 10 }}>
-              <Text style={{ color: "#7A4B00", fontSize: 11, lineHeight: 16 }}>
-                Demo local: los mensajes se guardan en este navegador. Para chatear desde otro teléfono necesitas iniciar sesión con la API conectada.
-              </Text>
-            </View>
+          {role === "store" && (
+            <Pressable accessibilityRole="button" onPress={() => setPaymentDetailsVisible(true)} style={{ alignSelf: "flex-start", backgroundColor: "#E8F5F3", paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12 }}>
+              <Text style={{ color: "#08766F", fontSize: 12, fontWeight: "900" }}>Ver datos de Pago Móvil</Text>
+            </Pressable>
           )}
           {role === "store" && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
               {quickReplies.map((reply) => (
-                <Pressable key={reply} disabled={sending} onPress={() => void send(reply)} style={{ backgroundColor: "#FFF0EC", paddingHorizontal: 11, paddingVertical: 9, borderRadius: 16 }}>
-                  <Text style={{ color: "#D8482D", fontSize: 11, fontWeight: "800" }}>{reply}</Text>
+                <Pressable key={reply} disabled={sending} onPress={() => void send(reply)} style={{ backgroundColor: "#E7F7F5", paddingHorizontal: 11, paddingVertical: 9, borderRadius: 16 }}>
+                  <Text style={{ color: "#028090", fontSize: 11, fontWeight: "800" }}>{reply}</Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -121,11 +112,13 @@ export function OrderChatSheet({ order, role, onClose }: {
             {messages.map((item) => {
               const own = item.sender_id === session!.user.id;
               return (
-                <View key={item.id} style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "90%", backgroundColor: own ? "#FFF0EC" : "#fff", padding: 10, borderRadius: 13, marginVertical: 4 }}>
+                <View key={item.id} style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "90%", backgroundColor: own ? "#E7F7F5" : "#fff", padding: 10, borderRadius: 13, marginVertical: 4 }}>
                   <Text style={{ fontSize: 10, color: "#777D89", fontWeight: "800" }}>{own ? "Tú" : item.sender_name}</Text>
                   {item.message ? <Text style={{ color: "#191B22", marginTop: 3 }}>{item.message}</Text> : null}
                   {item.payment_reference ? <Text style={{ color: "#17633A", fontWeight: "800", marginTop: 4 }}>Referencia: {item.payment_reference}</Text> : null}
-                  {item.attachment_url ? <Pressable onPress={() => void Linking.openURL(item.attachment_url!)}><Text selectable style={{ color: "#1767A5", fontSize: 12, marginTop: 4 }}>Ver comprobante ↗</Text></Pressable> : null}
+                  {item.attachment_url?.startsWith("data:image/") ? (
+                    <Image source={{ uri: item.attachment_url }} accessibilityLabel="Foto del comprobante" style={{ width: 220, height: 160, borderRadius: 10, marginTop: 6, backgroundColor: "#E5E7EB" }} resizeMode="cover" />
+                  ) : item.attachment_url ? <Pressable onPress={() => void Linking.openURL(item.attachment_url!)}><Text selectable style={{ color: "#1767A5", fontSize: 12, marginTop: 4 }}>Ver comprobante ↗</Text></Pressable> : null}
                   <Text style={{ color: "#9398A2", fontSize: 9, marginTop: 5 }}>{new Date(item.created_at).toLocaleString("es-VE")}</Text>
                 </View>
               );
@@ -139,11 +132,12 @@ export function OrderChatSheet({ order, role, onClose }: {
               {order.status === "accepted" ? "Obligatorio para iniciar la preparación: envía el número de referencia o un enlace a la captura del comprobante." : "Puedes enviar el número de referencia o el enlace a la captura del comprobante."}
             </Text>
             <TextInput value={reference} onChangeText={setReference} placeholder="Número de referencia de Pago Móvil" style={{ minHeight: 44, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, paddingHorizontal: 12 }} />
-            <TextInput value={attachmentUrl} onChangeText={setAttachmentUrl} placeholder="Enlace a la captura del comprobante" autoCapitalize="none" keyboardType="url" style={{ minHeight: 44, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, paddingHorizontal: 12 }} />
+            <ReceiptPhotoPicker disabled={sending} value={attachmentUrl} onSelect={setAttachmentUrl} />
+            {attachmentUrl && <Text style={{ color: "#667085", fontSize: 11 }}>Comprobante adjunto; se guardará en el historial del pedido.</Text>}
           </>}
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
             <TextInput value={message} onChangeText={setMessage} placeholder="Escribe un mensaje…" multiline style={{ flex: 1, minHeight: 46, maxHeight: 90, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 13, paddingHorizontal: 12, paddingVertical: 10 }} />
-            <Pressable disabled={sending || (role === "customer" && order?.status === "accepted" && !reference.trim() && !attachmentUrl.trim())} onPress={() => void send()} style={{ backgroundColor: "#F45B3C", borderRadius: 13, padding: 13, opacity: sending || (role === "customer" && order?.status === "accepted" && !reference.trim() && !attachmentUrl.trim()) ? 0.6 : 1 }}>
+            <Pressable disabled={sending || (role === "customer" && order?.status === "accepted" && !reference.trim() && !attachmentUrl.trim())} onPress={() => void send()} style={{ backgroundColor: "#00A896", borderRadius: 13, padding: 13, opacity: sending || (role === "customer" && order?.status === "accepted" && !reference.trim() && !attachmentUrl.trim()) ? 0.6 : 1 }}>
               <Text style={{ color: "#fff", fontWeight: "900" }}>{sending ? "…" : "Enviar"}</Text>
             </Pressable>
           </View>
@@ -151,6 +145,17 @@ export function OrderChatSheet({ order, role, onClose }: {
           <Button title="Cerrar chat" secondary onPress={onClose} />
         </View>
       </View>
+      <Modal visible={paymentDetailsVisible} transparent animationType="fade" onRequestClose={() => setPaymentDetailsVisible(false)}>
+        <View style={{ flex: 1, justifyContent: "center", padding: 22, backgroundColor: "#15192388" }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 20, padding: 20, gap: 12 }}>
+            <Text style={styles.title}>Datos de Pago Móvil</Text>
+            {order?.payment_bank || order?.payment_document || order?.payment_phone
+              ? <Text style={{ color: "#334155", lineHeight: 22 }}>{order?.payment_bank || "Banco no configurado"}{"\n"}Cédula/RIF: {order?.payment_document || "No configurado"}{"\n"}Teléfono: {order?.payment_phone || "No configurado"}</Text>
+              : <Text style={styles.subtitle}>Configura banco, Cédula/RIF y teléfono en el perfil del comercio.</Text>}
+            <Button title="Cerrar" onPress={() => setPaymentDetailsVisible(false)} />
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }

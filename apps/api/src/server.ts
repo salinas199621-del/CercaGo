@@ -62,6 +62,7 @@ app.use(helmet({
 }));
 app.use(cors({ origin: allowClientOrigin }));
 app.use(express.json({ limit: "1mb" }));
+app.use("/api/auth/password-reset/request", rateLimit({ windowMs: 15 * 60_000, limit: 3, standardHeaders: true, legacyHeaders: false }));
 app.use("/api/auth", rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false }));
 app.use("/api", rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));
 app.get("/health", async (_req, res) => {

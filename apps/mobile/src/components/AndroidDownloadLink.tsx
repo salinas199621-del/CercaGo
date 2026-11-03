@@ -26,7 +26,7 @@ export function AndroidDownloadLink({ compact = false }: { compact?: boolean }) 
         justifyContent: "center",
         borderRadius: 14,
         paddingHorizontal: 16,
-        backgroundColor: compact ? "#E8F5F3" : "#0D9B91",
+        backgroundColor: compact ? "#E8F5F3" : "#00A896",
         borderWidth: compact ? 1 : 0,
         borderColor: "#BFE5E0",
       }}

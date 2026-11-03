@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api, connectSocket, disconnectSocket } from "../api";
 import { setSocket, socket } from "../screens/socketRef";
-import { setDemoRole } from "../demoApi";
+import { clearSession, migrateLegacySession, writeSession } from "./sessionStorage";
 import type { User } from "../types";
 
 interface Session { user: User; token: string }
@@ -11,50 +11,113 @@ interface AuthValue {
   loading: boolean;
   exchangeRate: number | null;
   exchangeRateValueDate: string | null;
-  signIn(email: string, password: string): Promise<void>;
+  exchangeRateFallback: boolean;
+  signIn(identifier: string, password: string): Promise<void>;
   signInWithGoogle(credential: string): Promise<void>;
   signUp(payload: Record<string, unknown>): Promise<void>;
-  demoSignIn(role: "customer" | "store" | "driver"): Promise<void>;
+  requestPasswordReset(identifier: string): Promise<void>;
+  resetPassword(identifier: string, code: string, password: string): Promise<void>;
+  updateProfile(name: string, email: string, phone: string | null): Promise<void>;
   signOut(): Promise<void>;
 }
 const AuthContext = createContext<AuthValue | null>(null);
+const exchangeRateStorageKey = "cercago-bcv-last-official-rate";
+
+type OfficialRatePayload = {
+  moneda?: unknown;
+  fuente?: unknown;
+  promedio?: unknown;
+  fechaActualizacion?: unknown;
+};
+
+async function fetchOfficialRate(): Promise<{ rate: number; valueDate: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch("https://ve.dolarapi.com/v1/dolares/oficial", {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`DolarAPI respondió HTTP ${response.status}`);
+    const payload = await response.json() as OfficialRatePayload;
+    const rate = Number(payload.promedio);
+    const updatedAt = typeof payload.fechaActualizacion === "string" ? new Date(payload.fechaActualizacion) : null;
+    if (payload.moneda !== "USD" || payload.fuente !== "oficial" || !Number.isFinite(rate) || rate <= 0 ||
+      !updatedAt || !Number.isFinite(updatedAt.getTime())) {
+      throw new Error("DolarAPI no devolvió una tasa oficial USD válida.");
+    }
+    return { rate, valueDate: updatedAt.toISOString().slice(0, 10) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export function AuthProvider({ children }: React.PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [exchangeRateValueDate, setExchangeRateValueDate] = useState<string | null>(null);
+  const [exchangeRateFallback, setExchangeRateFallback] = useState(false);
 
   const refreshExchangeRate = useCallback(async (token?: string) => {
     try {
-      const current = await api<{ rate: number; valueDate: string }>("/exchange-rate", token);
+      let current: { rate: number; valueDate: string };
+      try {
+        current = await fetchOfficialRate();
+      } catch (publicApiError) {
+        console.warn("No se pudo consultar DolarAPI; se intentará usar la tasa oficial del servidor.", publicApiError);
+        const serverRate = await api<{ rate: number | null; valueDate: string | null }>("/exchange-rate", token);
+        if (!Number.isFinite(serverRate.rate) || Number(serverRate.rate) <= 0 || !serverRate.valueDate) {
+          throw new Error("El servidor no tiene una tasa oficial guardada.");
+        }
+        current = { rate: Number(serverRate.rate), valueDate: serverRate.valueDate };
+      }
       if (Number.isFinite(current.rate) && current.rate > 0) {
         setExchangeRate(current.rate);
         setExchangeRateValueDate(current.valueDate);
+        setExchangeRateFallback(false);
+        try {
+          await AsyncStorage.setItem(exchangeRateStorageKey, JSON.stringify(current));
+        } catch (cacheError) {
+          console.error("No se pudo guardar la última tasa BCV oficial", cacheError);
+        }
       }
     } catch (error) {
-      console.error("No se pudo cargar la tasa de cambio", error);
+      try {
+        const cached = await AsyncStorage.getItem(exchangeRateStorageKey);
+        if (cached) {
+          const value = JSON.parse(cached) as { rate?: unknown; valueDate?: unknown };
+          if (typeof value.rate === "number" && Number.isFinite(value.rate) && value.rate > 0 &&
+            typeof value.valueDate === "string") {
+            setExchangeRate(value.rate);
+            setExchangeRateValueDate(value.valueDate);
+            setExchangeRateFallback(true);
+            return;
+          }
+        }
+      } catch (cacheError) {
+        console.error("No se pudo leer la última tasa BCV guardada", cacheError);
+      }
+      console.error("No se pudo cargar la tasa oficial desde DolarAPI, el servidor ni el almacenamiento local", error);
     }
   }, []);
 
   useEffect(() => {
-    AsyncStorage.getItem("cercago-session")
-      .then((saved) => {
+    migrateLegacySession()
+      .then(async (saved) => {
         if (!saved) {
           void refreshExchangeRate();
           return;
         }
         const value = JSON.parse(saved) as Session;
-        setSession(value);
         if (value.token === "demo") {
-          setDemoRole(value.user.role);
-          void refreshExchangeRate(value.token);
+          await clearSession();
+          return;
         }
-        else {
-          setDemoRole(null);
-          setSocket(connectSocket(value.token));
-          void refreshExchangeRate(value.token);
-        }
+        setSession(value);
+        setSocket(connectSocket(value.token));
+        void refreshExchangeRate(value.token);
       })
       .catch((error) => console.error("No se pudo restaurar la sesión", error))
       .finally(() => setLoading(false));
@@ -79,31 +142,16 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
   }, [session]);
 
   async function save(value: Session) {
-    await AsyncStorage.setItem("cercago-session", JSON.stringify(value));
+    await writeSession(JSON.stringify(value));
     setSession(value);
-    if (value.token === "demo") {
-      setDemoRole(value.user.role);
-      disconnectSocket();
-      setSocket(null);
-    } else {
-      setDemoRole(null);
-      setSocket(connectSocket(value.token));
-    }
-    await refreshExchangeRate(value.token);
+    setSocket(connectSocket(value.token));
+    void refreshExchangeRate(value.token);
   }
 
-  async function demoSignIn(role: "customer" | "store" | "driver") {
-    const names = { customer: "Alex Demo", store: "Café de la Esquina", driver: "Sam Repartidor" };
-    await save({
-      token: "demo",
-      user: { id: `demo-${role}`, name: names[role], email: `${role}@demo.cercago.local`, role },
-    });
-  }
-
-  async function signIn(email: string, password: string) {
+  async function signIn(identifier: string, password: string) {
     await save(await api<Session>("/auth/login", undefined, {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ identifier, password }),
     }));
   }
 
@@ -121,15 +169,42 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     }));
   }
 
+  async function requestPasswordReset(identifier: string) {
+    await api("/auth/password-reset/request", undefined, {
+      method: "POST",
+      body: JSON.stringify({ identifier }),
+    });
+  }
+
+  async function resetPassword(identifier: string, code: string, password: string) {
+    await api("/auth/password-reset/confirm", undefined, {
+      method: "POST",
+      body: JSON.stringify({ identifier, code, password }),
+    });
+  }
+
+  async function updateProfile(name: string, email: string, phone: string | null) {
+    if (!session) throw new Error("Inicia sesión para editar tu perfil.");
+    const user = (await api<{ user: User }>("/auth/me", session.token, {
+      method: "PATCH",
+      body: JSON.stringify({ name: name.trim(), email: email.trim(), phone }),
+    })).user;
+    const updated = { ...session, user };
+    await writeSession(JSON.stringify(updated));
+    setSession(updated);
+  }
+
   async function signOut() {
-    await AsyncStorage.removeItem("cercago-session");
-    setDemoRole(null);
+    await clearSession();
     disconnectSocket();
     setSocket(null);
     setSession(null);
   }
 
-  const value = useMemo(() => ({ session, loading, exchangeRate, exchangeRateValueDate, signIn, signInWithGoogle, signUp, signOut, demoSignIn }), [session, loading, exchangeRate, exchangeRateValueDate]);
+  const value = useMemo(() => ({
+    session, loading, exchangeRate, exchangeRateValueDate, exchangeRateFallback,
+    signIn, signInWithGoogle, signUp, requestPasswordReset, resetPassword, updateProfile, signOut,
+  }), [session, loading, exchangeRate, exchangeRateValueDate, exchangeRateFallback]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

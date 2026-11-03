@@ -3,14 +3,16 @@ import { Animated, Dimensions, Pressable, ScrollView, Text, View, type ScrollVie
 import { Button, styles } from "../components/UI";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
+import { useAppearance } from "../appearance";
 
 const pages = [
-  { eyebrow: "TODO TU BARRIO, EN UN SOLO LUGAR", title: "Lo bueno está más cerca", body: "Descubre restaurantes, tiendas y favoritos locales a pocos minutos de ti.", icon: "🏘️", color: "#FFF0E8", accent: "#F45B3C" },
+  { eyebrow: "TODO TU BARRIO, EN UN SOLO LUGAR", title: "Lo bueno está más cerca", body: "Descubre restaurantes, tiendas y favoritos locales a pocos minutos de ti.", icon: "🏘️", color: "#E7F7F5", accent: "#00A896" },
   { eyebrow: "FÁCIL, RÁPIDO Y A TU MANERA", title: "Pide lo que te encanta", body: "Explora menús, encuentra ofertas y recibe todo en la puerta de tu casa.", icon: "🛍️", color: "#EEF7EC", accent: "#468A58" },
   { eyebrow: "CADA PEDIDO, SIEMPRE A LA VISTA", title: "Tu pedido va contigo", body: "Sigue cada paso y conoce a las personas que hacen crecer tu comunidad.", icon: "🛵", color: "#FFF5D9", accent: "#D98B18" },
 ];
 
 export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComplete }: { exchangeRate: number | null; exchangeRateValueDate: string | null; onComplete: () => void }) {
+  const { theme } = useAppearance();
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollViewInstance | null>(null);
   const width = Math.min(Dimensions.get("window").width - 40, 440);
@@ -22,10 +24,10 @@ export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComple
   }
 
   return (
-    <ScrollView style={styles.page} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 24 }}>
+    <ScrollView style={[styles.page, { backgroundColor: theme.background }]} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 24 }}>
       <View style={{ width: "100%", maxWidth: 440, alignSelf: "center" }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <Text style={{ color: "#F45B3C", fontWeight: "900", fontSize: 17, letterSpacing: 2 }}>CERCAGO</Text>
+          <Text style={{ color: theme.primaryDark, fontWeight: "900", fontSize: 17, letterSpacing: 2 }}>CERCAGO</Text>
           <Pressable accessibilityRole="button" onPress={onComplete} hitSlop={12}>
             <Text style={{ color: "#777D89", fontSize: 14, fontWeight: "700" }}>Omitir</Text>
           </Pressable>
@@ -67,7 +69,7 @@ export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComple
         <View style={{ flexDirection: "row", gap: 7, justifyContent: "center", marginTop: 23, marginBottom: 12 }}>
           {pages.map((item, index) => (
             <Pressable key={item.title} onPress={() => moveTo(index)} accessibilityRole="button" accessibilityLabel={`Ir a la pantalla ${index + 1}`}>
-              <Animated.View style={{ width: page === index ? 24 : 7, height: 7, borderRadius: 5, backgroundColor: page === index ? "#F45B3C" : "#D8DBE1" }} />
+              <Animated.View style={{ width: page === index ? 24 : 7, height: 7, borderRadius: 5, backgroundColor: page === index ? theme.primary : "#D8DBE1" }} />
             </Pressable>
           ))}
         </View>

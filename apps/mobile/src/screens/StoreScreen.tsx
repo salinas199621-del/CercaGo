@@ -6,11 +6,13 @@ import { Button, Card, Field, Loading, styles } from "../components/UI";
 import { OrderChatSheet } from "../components/OrderChatSheet";
 import { formatDualPrice } from "../currency";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { useAppearance } from "../appearance";
 import type { Order, Product } from "../types";
 import { socket } from "./socketRef";
 
 export function StoreScreen() {
   const { session, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { theme } = useAppearance();
   const token = session!.token;
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -141,11 +143,11 @@ export function StoreScreen() {
 
   if (loading) return <Loading />;
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.content}>
-      <View style={{ backgroundColor: "#241E1B", borderRadius: 24, padding: 21, gap: 8, overflow: "hidden" }}>
-        <Text style={{ color: "#FFC1AE", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>TU NEGOCIO, MÁS CERCA</Text>
+    <ScrollView style={[styles.page, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
+      <View style={{ backgroundColor: theme.primaryDark, borderRadius: 24, padding: 21, gap: 8, overflow: "hidden" }}>
+        <Text style={{ color: "#E8FFFC", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>TU NEGOCIO, MÁS CERCA</Text>
         <Text style={{ color: "#fff", fontSize: 25, fontWeight: "900" }}>¡Hola, {storeName || "comercio"}! 👋</Text>
-        <Text style={{ color: "#DDD6D1", fontSize: 13 }}>Hoy es un gran día para llegar a más vecinos.</Text>
+        <Text style={{ color: "#E8FFFC", fontSize: 13 }}>Hoy es un gran día para llegar a más vecinos.</Text>
         <View style={{ flexDirection: "row", gap: 9, marginTop: 7 }}>
           {[
             { value: String(orders.filter((order) => ["placed", "accepted", "preparing"].includes(order.status)).length), label: "PEDIDOS ACTIVOS" },
@@ -154,7 +156,7 @@ export function StoreScreen() {
           ].map((item) => (
             <View key={item.label} style={{ flex: 1, backgroundColor: "#FFFFFF18", borderRadius: 15, padding: 11 }}>
               <Text style={{ color: "#fff", fontSize: 21, fontWeight: "900" }}>{item.value}</Text>
-              <Text style={{ color: "#D4CBC7", fontSize: 8, fontWeight: "800", marginTop: 3 }}>{item.label}</Text>
+              <Text style={{ color: "#D8FFFA", fontSize: 8, fontWeight: "800", marginTop: 3 }}>{item.label}</Text>
             </View>
           ))}
         </View>
@@ -162,7 +164,7 @@ export function StoreScreen() {
       <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Card>
-        <Text style={styles.section}>Perfil del negocio</Text>
+        <Text style={[styles.section, { color: theme.ink }]}>Perfil del negocio</Text>
         <Field label="Nombre del negocio" value={storeName} onChangeText={setStoreName} />
         <Field label="Dirección" value={storeAddress} onChangeText={setStoreAddress} />
         <Field label="Descripción" value={storeDescription} onChangeText={setStoreDescription} multiline />
@@ -170,26 +172,26 @@ export function StoreScreen() {
           <View style={{ flex: 1 }}><Field label="Latitud" value={latitude} onChangeText={setLatitude} keyboardType="numeric" /></View>
           <View style={{ flex: 1 }}><Field label="Longitud" value={longitude} onChangeText={setLongitude} keyboardType="numeric" /></View>
         </View>
-        <Text style={styles.subtitle}>Configura las coordenadas para recibir repartidores cercanos.</Text>
+        <Text style={[styles.subtitle, { color: theme.muted }]}>Configura las coordenadas para recibir repartidores cercanos.</Text>
         <Button title={`Delivery propio: ${hasOwnDelivery ? "Sí" : "No"}`} secondary onPress={() => setHasOwnDelivery((value) => !value)} />
         <Button title={`Delivery gratis: ${freeDelivery ? "Sí" : "No"}`} secondary onPress={() => setFreeDelivery((value) => !value)} />
-        <Text style={styles.section}>Datos de Pago Móvil</Text>
+        <Text style={[styles.section, { color: theme.ink }]}>Datos de Pago Móvil</Text>
         <Field label="Banco" value={paymentBank} onChangeText={setPaymentBank} placeholder="Banco de Venezuela" />
         <Field label="RIF o cédula" value={paymentDocument} onChangeText={setPaymentDocument} placeholder="J-12345678-9" />
         <Field label="Teléfono" value={paymentPhone} onChangeText={setPaymentPhone} placeholder="0412-1234567" keyboardType="numeric" />
         <Button title="Guardar perfil" onPress={() => void saveStoreProfile()} />
       </Card>
-      <Text style={styles.section}>Pedidos entrantes</Text>
-      {!orders.length && <Text style={styles.subtitle}>No tienes pedidos todavía.</Text>}
+      <Text style={[styles.section, { color: theme.ink }]}>Pedidos entrantes</Text>
+      {!orders.length && <Text style={[styles.subtitle, { color: theme.muted }]}>No tienes pedidos todavía.</Text>}
       {orders.map((order) => (
         <Card key={order.id}>
           <View style={styles.row}>
-            <Text style={{ color: "#191B22", fontWeight: "900", fontSize: 15 }}>Pedido #{order.id.slice(0, 8)}</Text>
-            <Text style={{ color: order.status === "placed" ? "#D8482D" : "#6F7480", backgroundColor: order.status === "placed" ? "#FFF0EC" : "#F2F3F5", overflow: "hidden", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, fontSize: 10, fontWeight: "900" }}>{order.status.toUpperCase()}</Text>
+            <Text style={{ color: theme.ink, fontWeight: "900", fontSize: 15 }}>Pedido #{order.id.slice(0, 8)}</Text>
+            <Text style={{ color: order.status === "placed" ? theme.primaryDark : theme.muted, backgroundColor: order.status === "placed" ? theme.soft : theme.background, overflow: "hidden", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, fontSize: 10, fontWeight: "900" }}>{order.status.toUpperCase()}</Text>
           </View>
-          <Text>{order.items?.map((item) => `${item.quantity} × ${item.productName}`).join(", ")}</Text>
-          <Text style={styles.subtitle}>Entrega: {order.delivery_address}</Text>
-          <Text>Total: {formatDualPrice(order.total, order.exchange_rate ?? exchangeRate)}</Text>
+          <Text style={{ color: theme.ink }}>{order.items?.map((item) => `${item.quantity} × ${item.productName}`).join(", ")}</Text>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>Entrega: {order.delivery_address}</Text>
+          <Text style={{ color: theme.ink }}>Total: {formatDualPrice(order.total, order.exchange_rate ?? exchangeRate)}</Text>
           <Button title="Abrir chat del pedido" secondary onPress={() => setActiveChatOrder(order)} />
           {(order.status === "placed" || order.status === "accepted" || order.status === "preparing" ||
             (hasOwnDelivery && (order.status === "ready" || order.status === "picked_up"))) && (
@@ -210,7 +212,7 @@ export function StoreScreen() {
           )}
         </Card>
       ))}
-      <Text style={styles.section}>{editing ? "Editar producto" : "Agregar producto"}</Text>
+      <Text style={[styles.section, { color: theme.ink }]}>{editing ? "Editar producto" : "Agregar producto"}</Text>
       <Field label="Nombre" value={name} onChangeText={setName} />
       <Field label="Descripción" value={description} onChangeText={setDescription} />
       <Field label="Precio" value={price} onChangeText={setPrice} keyboardType="numeric" />
@@ -218,12 +220,12 @@ export function StoreScreen() {
       <Field label="URL de imagen (opcional)" value={imageUrl} onChangeText={setImageUrl} />
       <Button title={editing ? "Guardar cambios" : "Agregar al catálogo"} onPress={() => void saveProduct()} />
       {editing && <Button title="Cancelar edición" secondary onPress={resetForm} />}
-      <Text style={styles.section}>Catálogo ({products.length})</Text>
+      <Text style={[styles.section, { color: theme.ink }]}>Catálogo ({products.length})</Text>
       {products.map((product) => (
         <Card key={product.id}>
           <View style={styles.row}>
-            <Text style={{ fontWeight: "700", flex: 1 }}>{product.name} · {formatDualPrice(product.price, exchangeRate)}</Text>
-            <Text>{product.in_stock ? `${product.stock_quantity ?? 0} disponibles` : "Agotado"}</Text>
+            <Text style={{ color: theme.ink, fontWeight: "700", flex: 1 }}>{product.name} · {formatDualPrice(product.price, exchangeRate)}</Text>
+            <Text style={{ color: theme.muted }}>{product.in_stock ? `${product.stock_quantity ?? 0} disponibles` : "Agotado"}</Text>
           </View>
           <View style={styles.row}>
             <Button title="Editar" secondary onPress={() => {

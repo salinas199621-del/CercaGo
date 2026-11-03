@@ -3,6 +3,7 @@ import {
   Animated,
   Image,
   ImageBackground,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -13,55 +14,31 @@ import {
   View,
   type ScrollViewInstance,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Location from "../location";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
-import { Button, Card, Loading, styles } from "../components/UI";
+import { themeOptions, useAppearance } from "../appearance";
+import { Button, Card, Field, Loading, styles } from "../components/UI";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { CustomerDrawer, type DrawerItem } from "../components/CustomerDrawer";
+import { CercaGoLogo } from "../components/CercaGoLogo";
+import { Avatar, illustratedAvatars } from "../components/Avatar";
+import { ProfilePhotoPicker } from "../components/ProfilePhotoPicker";
+import { PromotionBanner } from "../components/PromotionBanner";
 import { LocationPicker } from "../components/LocationPicker";
 import type { LocationCoordinates } from "../components/LocationPickerMap";
 import { OrderChatSheet } from "../components/OrderChatSheet";
-import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
 import { formatDualPrice } from "../currency";
+import { defaultPromotions, parsePromotions, promotionStorageKey, promotionsManifestUrl, type Promotion } from "../promotions";
 import type { Address, Category, Order, Product, Store } from "../types";
 import { socket } from "./socketRef";
 
-type Sheet = "profile" | "location" | "cart" | "notice" | null;
+type Sheet = "profile" | "location" | "cart" | "notice" | "rate" | "settings" | null;
 type CustomerTab = "home" | "orders";
-
-const palette = {
-  ink: "#191B22",
-  muted: "#777D89",
-  orange: "#F45B3C",
-  brand: "#0D9B91",
-  background: "#F7F8FA",
-  green: "#23824E",
-};
-
-const promotions = [
-  {
-    tag: "FAVORITOS DEL BARRIO",
-    title: "Lo rico llega rápido",
-    body: "Descubre algo nuevo a la vuelta de la esquina.",
-    image: "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1200&q=85",
-    tint: "#351A13",
-  },
-  {
-    tag: "UNA PAUSA QUE TE MERECES",
-    title: "Café y algo dulce",
-    body: "Tu tarde acaba de mejorar. Desde $3.50.",
-    image: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=85",
-    tint: "#332014",
-  },
-  {
-    tag: "CERCA, FRESCO, LOCAL",
-    title: "El mercado va a ti",
-    body: "Llena tu cocina con productos frescos.",
-    image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=85",
-    tint: "#183324",
-  },
-];
+const notificationsStorageKey = "cercago-notifications-enabled";
+const profileAvatarStoragePrefix = "cercago-profile-avatar-v1:";
 
 const categoryVisuals: Record<string, { icon: string; color: string }> = {
   Todo: { icon: "▦", color: "#EEF0F4" },
@@ -80,6 +57,7 @@ function CategoryItem({ category, selected, onPress }: {
   selected: boolean;
   onPress: () => void;
 }) {
+  const { theme } = useAppearance();
   const scale = useRef(new Animated.Value(1)).current;
   const visual = categoryVisuals[category.name] ?? { icon: "✨", color: "#F0F1F4" };
   return (
@@ -93,13 +71,13 @@ function CategoryItem({ category, selected, onPress }: {
       <Animated.View style={{ alignItems: "center", gap: 8, width: 72, transform: [{ scale }] }}>
         <View style={{
           width: 62, height: 62, borderRadius: 22,
-          backgroundColor: selected ? "#FFE7DF" : visual.color,
-          borderWidth: selected ? 2 : 1, borderColor: selected ? palette.orange : "#FFFFFF",
+          backgroundColor: selected ? theme.soft : visual.color,
+          borderWidth: selected ? 2 : 1, borderColor: selected ? theme.primaryDark : "#FFFFFF",
           alignItems: "center", justifyContent: "center",
         }}>
           <Text style={{ fontSize: 26 }}>{visual.icon}</Text>
         </View>
-        <Text numberOfLines={1} style={{ color: selected ? palette.orange : "#565C67", fontSize: 11, fontWeight: selected ? "800" : "600" }}>
+        <Text numberOfLines={1} style={{ color: selected ? theme.primaryDark : "#565C67", fontSize: 11, fontWeight: selected ? "800" : "600" }}>
           {category.name}
         </Text>
       </Animated.View>
@@ -110,17 +88,18 @@ function CategoryItem({ category, selected, onPress }: {
 function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
   store: Store; exchangeRate: number | null; onPress: () => void; cardWidth: number;
 }) {
+  const { theme } = useAppearance();
   const ratingValue = Number(store.rating ?? 0);
   const rating = ratingValue > 0 ? ratingValue.toFixed(1) : "Nuevo";
   const fee = Number(store.delivery_fee ?? 2.99);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({
-      width: cardWidth, backgroundColor: "#fff", borderRadius: 20, overflow: "hidden",
-      borderWidth: 1, borderColor: "#EEF0F3", opacity: pressed ? 0.94 : 1,
+      width: cardWidth, backgroundColor: theme.surface, borderRadius: 20, overflow: "hidden",
+      borderWidth: 1, borderColor: theme.border, opacity: pressed ? 0.94 : 1,
       transform: [{ scale: pressed ? 0.985 : 1 }],
     })}>
       <ImageBackground
-        source={{ uri: store.image_url ?? promotions[0].image }}
+        source={{ uri: store.image_url ?? defaultPromotions[0].mediaUrl }}
         style={{ height: Math.round(cardWidth * 0.62), justifyContent: "space-between", padding: 10, backgroundColor: "#E9E9E9" }}
         imageStyle={{ resizeMode: "cover" }}
       >
@@ -132,13 +111,13 @@ function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
             {ratingValue > 0 ? `★ ${rating}` : rating}
           </Text>
         </View>
-        {store.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: palette.green, overflow: "hidden", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 10, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
+        {store.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: theme.id === "dark" ? "#16865B" : "#23824E", overflow: "hidden", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 10, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
       </ImageBackground>
       <View style={{ padding: 14, gap: 9 }}>
-        <Text numberOfLines={1} style={{ color: palette.ink, fontSize: 16, fontWeight: "900" }}>{store.name}</Text>
+        <Text numberOfLines={1} style={{ color: theme.ink, fontSize: 16, fontWeight: "900" }}>{store.name}</Text>
         <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-          <Text style={{ color: palette.muted, fontSize: 12 }}>◷ {store.estimated_delivery_minutes ?? 30}–{(store.estimated_delivery_minutes ?? 30) + 10} min</Text>
-          <Text style={{ color: fee === 0 ? palette.green : palette.muted, fontSize: 12, fontWeight: "800" }}>
+          <Text style={{ color: theme.muted, fontSize: 12 }}>◷ {store.estimated_delivery_minutes ?? 30}–{(store.estimated_delivery_minutes ?? 30) + 10} min</Text>
+          <Text style={{ color: fee === 0 ? "#23824E" : theme.muted, fontSize: 12, fontWeight: "800" }}>
             {store.free_delivery === true ? "Delivery gratis" : `Envío ${formatDualPrice(fee, exchangeRate)}`}
           </Text>
         </View>
@@ -149,11 +128,21 @@ function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
 }
 
 export function CustomerScreen() {
-  const { session, signOut, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { session, signOut, updateProfile, exchangeRate, exchangeRateValueDate, exchangeRateFallback } = useAuth();
+  const { theme, setTheme } = useAppearance();
+  const palette = {
+    ink: theme.ink,
+    muted: theme.muted,
+    orange: theme.primaryDark,
+    brand: theme.primary,
+    brandDark: theme.primaryDark,
+    background: theme.background,
+    green: theme.id === "dark" ? "#4ADE80" : "#23824E",
+  };
   const token = session!.token;
   const { width: screenWidth } = useWindowDimensions();
   const storeCardWidth = Math.max(150, Math.min(260, (screenWidth - 54) / 2));
-  const logoWidth = Math.min(142, Math.max(100, screenWidth - 202));
+  const logoWidth = Math.min(120, Math.max(42, screenWidth - 295));
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<Store | null>(null);
@@ -177,6 +166,15 @@ export function CustomerScreen() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileName, setProfileName] = useState(session!.user.name);
+  const [profileEmail, setProfileEmail] = useState(session!.user.email);
+  const [profilePhone, setProfilePhone] = useState(session!.user.phone ?? "");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notice, setNotice] = useState({ title: "", body: "" });
   const [activeChatOrder, setActiveChatOrder] = useState<Order | null>(null);
   const [reviewOrder, setReviewOrder] = useState<Order | null>(null);
@@ -185,12 +183,21 @@ export function CustomerScreen() {
   const [reviewComment, setReviewComment] = useState("");
   const [driverComment, setDriverComment] = useState("");
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [promotions, setPromotions] = useState<Promotion[]>(defaultPromotions);
+  const [promotionConfig, setPromotionConfig] = useState(JSON.stringify(defaultPromotions, null, 2));
   const bannerRef = useRef<ScrollViewInstance | null>(null);
   const pageScrollRef = useRef<ScrollViewInstance | null>(null);
   const [storeSectionY, setStoreSectionY] = useState(0);
   const bannerWidth = Math.min(screenWidth - 40, 840);
   const itemCount = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
   const cartTotal = products.reduce((sum, product) => sum + Number(product.price) * (cart[product.id] ?? 0), 0);
+  const searchTerm = search.trim().toLowerCase();
+  const storeSuggestions = searchTerm
+    ? stores.filter((store) => `${store.name} ${store.category_name ?? ""}`.toLowerCase().includes(searchTerm)).slice(0, 3)
+    : [];
+  const categorySuggestions = searchTerm
+    ? categories.filter((category) => category.name.toLowerCase().includes(searchTerm)).slice(0, 2)
+    : [];
 
   const refreshOrders = useCallback(async () => {
     try {
@@ -223,6 +230,61 @@ export function CustomerScreen() {
   }, [token]);
 
   useEffect(() => {
+    AsyncStorage.getItem(notificationsStorageKey)
+      .then((saved) => { if (saved !== null) setNotificationsEnabled(saved === "true"); })
+      .catch((reason) => console.error("No se pudo cargar la preferencia de notificaciones", reason));
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPromotions() {
+      try {
+        const saved = await AsyncStorage.getItem(promotionStorageKey);
+        if (saved) {
+          const configured = parsePromotions(JSON.parse(saved));
+          if (active) {
+            setPromotions(configured);
+            setPromotionConfig(JSON.stringify(configured, null, 2));
+          }
+          return;
+        }
+        const response = await fetch(promotionsManifestUrl, { cache: "no-store" });
+        if (!response.ok) throw new Error(`La configuración de anuncios respondió HTTP ${response.status}`);
+        const configured = parsePromotions(await response.json() as unknown);
+        if (active) {
+          setPromotions(configured);
+          setPromotionConfig(JSON.stringify(configured, null, 2));
+        }
+      } catch (reason) {
+        console.error("No se pudo cargar la configuración de anuncios; se usarán los anuncios integrados.", reason);
+      }
+    }
+    void loadPromotions();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    setProfileName(session!.user.name);
+    setProfileEmail(session!.user.email);
+    setProfilePhone(session!.user.phone ?? "");
+  }, [session!.user.name, session!.user.email, session!.user.phone]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(`${profileAvatarStoragePrefix}${session!.user.id}`)
+      .then(setProfileAvatar)
+      .catch((reason) => console.error("No se pudo cargar la foto de perfil", reason));
+  }, [session!.user.id]);
+
+  async function saveProfileAvatar(value: string) {
+    setProfileAvatar(value);
+    try {
+      await AsyncStorage.setItem(`${profileAvatarStoragePrefix}${session!.user.id}`, value);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la foto de perfil.");
+    }
+  }
+
+  useEffect(() => {
     const changed = (order?: Order) => {
       if (order) {
         setNotice({ title: "Tu pedido se actualizó", body: statusLabel(order.status) });
@@ -236,6 +298,7 @@ export function CustomerScreen() {
   }, [refreshOrders]);
 
   useEffect(() => {
+    if (!promotions.length) return;
     const timer = setInterval(() => {
       setBannerIndex((current) => {
         const next = (current + 1) % promotions.length;
@@ -244,7 +307,7 @@ export function CustomerScreen() {
       });
     }, 5000);
     return () => clearInterval(timer);
-  }, [bannerWidth]);
+  }, [bannerWidth, promotions.length]);
 
   async function openStore(store: Store) {
     setSelected(store);
@@ -328,6 +391,91 @@ export function CustomerScreen() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo eliminar la dirección"); }
   }
 
+  async function saveProfile() {
+    if (profileName.trim().length < 2) {
+      setError("Escribe un nombre de al menos 2 caracteres.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profileEmail.trim())) {
+      setError("Escribe un correo electrónico válido.");
+      return;
+    }
+    const digits = profilePhone.replace(/\D/g, "");
+    const nationalPhone = digits.startsWith("58") ? digits.slice(2) : digits.startsWith("0") ? digits.slice(1) : digits;
+    if (nationalPhone && nationalPhone.length !== 10) {
+      setError("El teléfono debe tener 10 dígitos después del prefijo +58.");
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      await updateProfile(profileName, profileEmail, nationalPhone ? `+58${nationalPhone}` : null);
+      setProfileEditing(false);
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar el perfil");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function toggleNotifications() {
+    const next = !notificationsEnabled;
+    try {
+      await AsyncStorage.setItem(notificationsStorageKey, String(next));
+      setNotificationsEnabled(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la preferencia");
+    }
+  }
+
+  async function savePromotionConfig() {
+    try {
+      const configured = parsePromotions(JSON.parse(promotionConfig) as unknown);
+      await AsyncStorage.setItem(promotionStorageKey, JSON.stringify(configured));
+      setPromotions(configured);
+      setBannerIndex(0);
+      setSheet(null);
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "La configuración de anuncios no es JSON válido.");
+    }
+  }
+
+  async function resetPromotionConfig() {
+    try {
+      await AsyncStorage.removeItem(promotionStorageKey);
+      const response = await fetch(promotionsManifestUrl, { cache: "no-store" });
+      if (!response.ok) throw new Error(`No se pudo cargar el archivo remoto de anuncios (${response.status}).`);
+      const configured = parsePromotions(await response.json() as unknown);
+      setPromotions(configured);
+      setPromotionConfig(JSON.stringify(configured, null, 2));
+      setBannerIndex(0);
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo restaurar la configuración remota.");
+    }
+  }
+
+  function handleDrawerSelect(item: DrawerItem) {
+    setDrawerVisible(false);
+    setError("");
+    if (item === "home") {
+      setActiveTab("home");
+      setSelected(null);
+    } else if (item === "orders") {
+      setActiveTab("orders");
+      setSelected(null);
+    } else if (item === "addresses") {
+      setSheet("location");
+    } else if (item === "rate") {
+      setSheet("rate");
+    } else if (item === "cart") {
+      setSheet("cart");
+    } else {
+      setSheet("settings");
+    }
+  }
+
   async function submitReview() {
     if (!reviewOrder || storeRating < 1) return setError("Selecciona una calificación de 1 a 5 estrellas.");
     try {
@@ -385,6 +533,16 @@ export function CustomerScreen() {
     requestAnimationFrame(() => pageScrollRef.current?.scrollTo({ y: storeSectionY, animated: true }));
   }
 
+  function openPromotion(promotion: Promotion, index: number) {
+    if (!promotion.linkUrl) {
+      explorePromotion(index);
+      return;
+    }
+    void Linking.openURL(promotion.linkUrl).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : "No se pudo abrir la promoción.");
+    });
+  }
+
   if (busy) return <Loading />;
   const visibleStores = stores.filter((store) => {
     const matchesText = `${store.name} ${store.category_name ?? ""}`.toLowerCase().includes(search.toLowerCase());
@@ -401,7 +559,7 @@ export function CustomerScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: !selected ? palette.brand : palette.background }} edges={["top", "bottom"]}>
       <View style={{ flex: 1, backgroundColor: palette.background }}>
-      <ScrollView ref={pageScrollRef} style={styles.page} contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: 112 }]} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={pageScrollRef} style={[styles.page, { backgroundColor: palette.background }]} contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: 34 }]} keyboardShouldPersistTaps="handled">
         {!selected && (
           <View style={{
             marginHorizontal: -20, marginTop: -16, marginBottom: 2, paddingHorizontal: 20,
@@ -409,62 +567,97 @@ export function CustomerScreen() {
             borderBottomLeftRadius: 24, borderBottomRightRadius: 24, gap: 12,
           }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <Image
-                source={require("../../assets/cercago-logo.png")}
-                resizeMode="cover"
-                accessibilityLabel="CercaGo"
-                style={{ width: logoWidth, height: 48, borderRadius: 10, backgroundColor: "#fff" }}
-              />
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Abrir menú de navegación"
+                onPress={() => setDrawerVisible(true)}
+                style={{ width: 36, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+              >
+                <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700" }}>☰</Text>
+              </Pressable>
+              <CercaGoLogo style={{ width: logoWidth, height: 38, borderRadius: 9, backgroundColor: "#fff" }} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver tasa BCV del día"
+                  onPress={() => setSheet("rate")}
+                >
+                  <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} fallback={exchangeRateFallback} compact />
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver pedidos y notificaciones"
+                  onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }}
+                  style={{ width: 34, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 18 }}>🔔</Text>
+                  {orders.length > 0 && <View style={{ position: "absolute", right: 5, top: 4, width: 8, height: 8, borderRadius: 5, backgroundColor: "#FF7568" }} />}
+                </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Abrir mi perfil"
                   onPress={() => setSheet("profile")}
-                  style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                  style={{ width: 34, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
                 >
-                  <Text style={{ fontSize: 20 }}>👤</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Ver pedidos y mensajes"
-                  onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }}
-                  style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
-                >
-                  <Text style={{ fontSize: 20 }}>🔔</Text>
-                  {orders.length > 0 && <View style={{ position: "absolute", right: 6, top: 5, width: 8, height: 8, borderRadius: 5, backgroundColor: palette.orange }} />}
+                  <Avatar value={profileAvatar} name={session!.user.name} size={34} />
                 </Pressable>
               </View>
             </View>
             {activeTab === "home" && (
-              <View style={{ backgroundColor: "#fff", borderRadius: 16, paddingHorizontal: 14, minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Text style={{ fontSize: 19, color: "#9196A0" }}>⌕</Text>
+              <View style={{ backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 14, minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#FFFFFFAA", shadowColor: "#064E49", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.13, shadowRadius: 12, elevation: 3 }}>
+                <Text style={{ fontSize: 20, color: palette.brand }}>⌕</Text>
                 <TextInput
                   accessibilityLabel="Buscar comercios o antojos"
-                  placeholder="Buscar productos locales..."
+                  placeholder="Busca un comercio o categoría"
                   placeholderTextColor="#A0A4AE"
                   value={search}
                   onChangeText={setSearch}
+                  onFocus={() => setSearchFocused(true)}
                   style={{ flex: 1, minHeight: 46, color: palette.ink, fontSize: 14 }}
                 />
-                {search.length > 0 && <Pressable onPress={() => setSearch("")}><Text style={{ color: palette.muted, padding: 8 }}>✕</Text></Pressable>}
+                {search.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel="Limpiar búsqueda" onPress={() => { setSearch(""); setSearchFocused(false); }}><Text style={{ color: palette.muted, padding: 8 }}>×</Text></Pressable>}
               </View>
             )}
-            {activeTab === "home" && <AndroidDownloadLink compact />}
+            {activeTab === "home" && searchFocused && searchTerm.length > 0 && (
+              <View style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 8, gap: 2, shadowColor: "#17212B", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 7 }}>
+                {storeSuggestions.map((store) => (
+                  <Pressable key={store.id} accessibilityRole="button" onPress={() => { setSearchFocused(false); void openStore(store); }} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 11 }}>
+                    <Text style={{ color: palette.brand, fontSize: 17 }}>⌕</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ color: palette.ink, fontWeight: "800", fontSize: 13 }}>{store.name}</Text>
+                      <Text style={{ color: palette.muted, fontSize: 11 }}>{store.category_name ?? "Comercio local"}</Text>
+                    </View>
+                    <Text style={{ color: palette.muted }}>›</Text>
+                  </Pressable>
+                ))}
+                {categorySuggestions.map((category) => (
+                  <Pressable key={category.id} accessibilityRole="button" onPress={() => { setSelectedCategory(category.id); setSearch(""); setSearchFocused(false); }} style={{ minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 11 }}>
+                    <Text style={{ color: palette.brand, fontSize: 16 }}>▦</Text>
+                    <Text style={{ color: palette.ink, fontSize: 13, fontWeight: "700" }}>Ver categoría {category.name}</Text>
+                  </Pressable>
+                ))}
+                {storeSuggestions.length === 0 && categorySuggestions.length === 0 && (
+                  <Pressable accessibilityRole="button" onPress={() => setSearchFocused(false)} style={{ minHeight: 42, justifyContent: "center", paddingHorizontal: 10 }}>
+                    <Text style={{ color: palette.ink, fontSize: 13 }}>Ver comercios para “{search.trim()}”</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </View>
         )}
         {error ? <Pressable onPress={() => setError("")}><Text style={styles.error}>{error}  ×</Text></Pressable> : null}
-        <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
+        {selected && <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} fallback={exchangeRateFallback} />}
         {activeTab === "orders" ? (
           <>
             <View style={{ gap: 5, marginTop: 6 }}>
               <Text style={{ color: palette.ink, fontSize: 25, fontWeight: "900" }}>Pedidos y chat</Text>
-              <Text style={styles.subtitle}>Revisa tus pedidos y conversa con cada comercio.</Text>
+              <Text style={[styles.subtitle, { color: palette.muted }]}>Revisa tus pedidos y conversa con cada comercio.</Text>
             </View>
-            <View style={{ backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#EEF0F3", padding: 16, gap: 10 }}>
+            <View style={{ backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 10 }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: palette.ink, fontSize: 16, fontWeight: "900" }}>Dirección de entrega</Text>
-                  <Text numberOfLines={2} style={styles.subtitle}>
+                  <Text numberOfLines={2} style={[styles.subtitle, { color: palette.muted }]}>
                     {addresses.find((item) => item.id === selectedAddressId)?.address_line ?? "Aún no has seleccionado una dirección"}
                   </Text>
                 </View>
@@ -473,11 +666,11 @@ export function CustomerScreen() {
               <Button title="Administrar mis direcciones" secondary onPress={() => setSheet("location")} />
             </View>
             {orders.length ? orders.map((order) => (
-              <View key={order.id} style={{ backgroundColor: "#fff", borderRadius: 18, borderWidth: 1, borderColor: "#EEF0F3", padding: 15, gap: 9 }}>
+              <View key={order.id} style={{ backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 15, gap: 9 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: palette.ink, fontSize: 15, fontWeight: "900" }}>{order.store_name ?? "Comercio"}</Text>
-                    <Text style={styles.subtitle}>{order.delivery_address}</Text>
+                    <Text style={[styles.subtitle, { color: palette.muted }]}>{order.delivery_address}</Text>
                   </View>
                   <Text style={{ color: palette.orange, fontSize: 11, fontWeight: "900" }}>{statusLabel(order.status)}</Text>
                 </View>
@@ -490,10 +683,10 @@ export function CustomerScreen() {
                 </View>
               </View>
             )) : (
-              <View style={{ backgroundColor: "#fff", borderRadius: 20, padding: 22, alignItems: "center", gap: 8 }}>
+              <View style={{ backgroundColor: theme.surface, borderRadius: 20, padding: 22, alignItems: "center", gap: 8 }}>
                 <Text style={{ fontSize: 34 }}>🛍️</Text>
                 <Text style={{ color: palette.ink, fontSize: 16, fontWeight: "900" }}>Aún no tienes pedidos</Text>
-                <Text style={[styles.subtitle, { textAlign: "center" }]}>Cuando hagas tu primer pedido, aquí podrás revisar su estado y abrir el chat.</Text>
+                <Text style={[styles.subtitle, { textAlign: "center", color: palette.muted }]}>Cuando hagas tu primer pedido, aquí podrás revisar su estado y abrir el chat.</Text>
                 <Button title="Explorar comercios" onPress={() => setActiveTab("home")} />
               </View>
             )}
@@ -501,13 +694,13 @@ export function CustomerScreen() {
         ) : selected ? (
           <>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Pressable onPress={() => { setSelected(null); setError(""); }} style={{ backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 }}>
+              <Pressable onPress={() => { setSelected(null); setError(""); }} style={{ backgroundColor: theme.surface, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 }}>
                 <Text style={{ color: palette.ink, fontWeight: "800" }}>‹  Volver</Text>
               </Pressable>
               <Text style={{ color: palette.muted, fontWeight: "700" }}>MENÚ DEL COMERCIO</Text>
             </View>
             <View style={{ borderRadius: 24, overflow: "hidden", backgroundColor: "#E7E8E7" }}>
-              <ImageBackground source={{ uri: selected.image_url ?? promotions[0].image }} style={{ height: 210, justifyContent: "space-between", padding: 18 }}>
+              <ImageBackground source={{ uri: selected.image_url ?? defaultPromotions[0].mediaUrl }} style={{ height: 210, justifyContent: "space-between", padding: 18 }}>
                 {selected.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: palette.green, overflow: "hidden", borderRadius: 20, paddingVertical: 7, paddingHorizontal: 11, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
                 <View style={{ backgroundColor: "#151515A8", padding: 14, borderRadius: 16 }}>
                   <Text style={{ color: "#fff", fontSize: 23, fontWeight: "900" }}>{selected.name}</Text>
@@ -515,18 +708,18 @@ export function CustomerScreen() {
                 </View>
               </ImageBackground>
             </View>
-            <Text style={styles.section}>Lo que más te va a gustar</Text>
+            <Text style={[styles.section, { color: palette.ink }]}>Lo que más te va a gustar</Text>
             {productsLoading && <Loading />}
             {products.map((product) => (
               <Card key={product.id}>
                 <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
                   <View style={{ flex: 1, gap: 7 }}>
                     <Text style={{ color: palette.ink, fontWeight: "900", fontSize: 16 }}>{product.name}</Text>
-                    <Text style={styles.subtitle}>{product.description || (product.in_stock ? "Preparado con cariño" : "Sin stock por ahora")}</Text>
+                    <Text style={[styles.subtitle, { color: palette.muted }]}>{product.description || (product.in_stock ? "Preparado con cariño" : "Sin stock por ahora")}</Text>
                     <Text style={{ color: palette.ink, fontWeight: "900" }}>{formatDualPrice(product.price, exchangeRate)}</Text>
                   </View>
                   {product.image_url ? <Image source={{ uri: product.image_url }} style={{ width: 88, height: 88, borderRadius: 16, backgroundColor: "#F0F1F3" }} resizeMode="cover" /> : (
-                    <View style={{ width: 88, height: 88, borderRadius: 16, backgroundColor: "#FFF1EC", alignItems: "center", justifyContent: "center" }}><Text style={{ fontSize: 34 }}>🥐</Text></View>
+                    <View style={{ width: 88, height: 88, borderRadius: 16, backgroundColor: theme.soft, alignItems: "center", justifyContent: "center" }}><Text style={{ fontSize: 34 }}>🥐</Text></View>
                   )}
                 </View>
                 <Button
@@ -536,7 +729,7 @@ export function CustomerScreen() {
                 />
               </Card>
             ))}
-            {!productsLoading && !products.length && <Text style={styles.subtitle}>Este comercio aún no tiene productos publicados.</Text>}
+            {!productsLoading && !products.length && <Text style={[styles.subtitle, { color: palette.muted }]}>Este comercio aún no tiene productos publicados.</Text>}
           </>
         ) : (
           <>
@@ -552,22 +745,21 @@ export function CustomerScreen() {
               contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
             >
               {promotions.map((promo, index) => (
-                <Pressable key={promo.title} accessibilityRole="button" onPress={() => explorePromotion(index)} style={{ width: bannerWidth }}>
-                  <ImageBackground source={{ uri: promo.image }} style={{ height: 190, justifyContent: "center", padding: 22, overflow: "hidden", borderRadius: 24 }} imageStyle={{ borderRadius: 24 }}>
-                    <View style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: `${promo.tint}88`, borderRadius: 24 }} />
+                <Pressable key={promo.id} accessibilityRole="button" onPress={() => openPromotion(promo, index)} style={{ width: bannerWidth, height: 190 }}>
+                  <PromotionBanner promotion={promo}>
                     <Text style={{ color: "#FFE3A0", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>{promo.tag}</Text>
                     <Text style={{ color: "#fff", fontSize: 27, fontWeight: "900", marginTop: 8, maxWidth: 280 }}>{promo.title}</Text>
                     <Text style={{ color: "#FFFFFFE8", fontSize: 13, marginTop: 5, maxWidth: 280 }}>{promo.body}</Text>
                     <View style={{ alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 99, paddingHorizontal: 13, paddingVertical: 8, marginTop: 14 }}>
-                      <Text style={{ color: palette.ink, fontSize: 11, fontWeight: "900" }}>Explorar ahora  →</Text>
+                      <Text style={{ color: palette.ink, fontSize: 11, fontWeight: "900" }}>{promo.linkUrl ? "Ver promoción  →" : "Explorar ahora  →"}</Text>
                     </View>
-                  </ImageBackground>
+                  </PromotionBanner>
                 </Pressable>
               ))}
             </ScrollView>
             <View style={{ flexDirection: "row", justifyContent: "center", gap: 6, marginTop: -4 }}>
               {promotions.map((promo, index) => (
-                <Pressable key={promo.title} accessibilityRole="button" accessibilityLabel={`Ver promoción ${index + 1}`} onPress={() => {
+                <Pressable key={promo.id} accessibilityRole="button" accessibilityLabel={`Ver promoción ${index + 1}`} onPress={() => {
                   setBannerIndex(index);
                   bannerRef.current?.scrollTo({ x: (bannerWidth + 12) * index, animated: true });
                 }}>
@@ -577,7 +769,7 @@ export function CustomerScreen() {
             </View>
 
             <View onLayout={(event) => setStoreSectionY(event.nativeEvent.layout.y)} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={styles.section}>¿Qué buscamos?</Text>
+              <Text style={[styles.section, { color: palette.ink }]}>¿Qué buscamos?</Text>
               <Pressable accessibilityRole="button" onPress={() => void findNearby()}><Text style={{ color: palette.orange, fontWeight: "800", fontSize: 12 }}>{nearbyEnabled ? "Cerca de ti ✓" : "Ver cercanos"}</Text></Pressable>
             </View>
             {nearbyCoordinates && <Text style={{ color: palette.muted, fontSize: 11 }}>Distancias desde {nearbyCoordinates.latitude.toFixed(3)}, {nearbyCoordinates.longitude.toFixed(3)}.</Text>}
@@ -589,7 +781,7 @@ export function CustomerScreen() {
             </ScrollView>
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-              <View><Text style={styles.section}>Populares en tu zona</Text><Text style={styles.subtitle}>Los favoritos de tus vecinos</Text></View>
+              <View><Text style={[styles.section, { color: palette.ink }]}>Populares en tu zona</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Los favoritos de tus vecinos</Text></View>
               <Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>{visibleStores.length} lugares</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
@@ -597,69 +789,196 @@ export function CustomerScreen() {
             </ScrollView>
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-              <View><Text style={styles.section}>Envío gratis</Text><Text style={styles.subtitle}>Hoy invitan ellos 🚲</Text></View>
+              <View><Text style={[styles.section, { color: palette.ink }]}>Envío gratis</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Hoy invitan ellos 🚲</Text></View>
               <Text style={{ color: palette.green, fontWeight: "800", fontSize: 12 }}>Sin costo</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
               {freeDelivery.length
                 ? freeDelivery.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)
-                : <Text style={[styles.subtitle, { padding: 16 }]}>Las promociones de envío gratis aparecerán aquí.</Text>}
+                : <Text style={[styles.subtitle, { padding: 16, color: palette.muted }]}>Las promociones de envío gratis aparecerán aquí.</Text>}
             </ScrollView>
 
-            <View style={{ marginTop: 8 }}><Text style={styles.section}>Nuevos comercios</Text><Text style={styles.subtitle}>Descubre quién llegó al barrio</Text></View>
+            <View style={{ marginTop: 8 }}><Text style={[styles.section, { color: palette.ink }]}>Nuevos comercios</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Descubre quién llegó al barrio</Text></View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
               {newest.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)}
             </ScrollView>
 
-            <View style={{ backgroundColor: "#FFF0EC", padding: 18, borderRadius: 20, marginTop: 8 }}>
+            <View style={{ backgroundColor: theme.soft, padding: 18, borderRadius: 20, marginTop: 8 }}>
               <Text style={{ fontSize: 22 }}>💛</Text>
               <Text style={{ color: palette.ink, fontWeight: "900", fontSize: 16, marginTop: 6 }}>Cada pedido apoya a alguien cerca</Text>
-              <Text style={[styles.subtitle, { marginTop: 4 }]}>Gracias por elegir los comercios de tu comunidad.</Text>
+              <Text style={[styles.subtitle, { marginTop: 4, color: palette.muted }]}>Gracias por elegir los comercios de tu comunidad.</Text>
             </View>
           </>
         )}
       </ScrollView>
 
-      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#FFFFFFF5", borderTopWidth: 1, borderTopColor: "#ECEEF1", paddingHorizontal: 14, paddingTop: 9, paddingBottom: 14, flexDirection: "row", justifyContent: "space-around" }}>
-        <Pressable onPress={() => { setActiveTab("home"); setSelected(null); setError(""); }} style={{ alignItems: "center", gap: 3, minWidth: 76, paddingVertical: 3 }}>
-          <Text style={{ fontSize: 20, color: activeTab === "home" ? palette.brand : palette.muted }}>⌂</Text><Text style={{ color: activeTab === "home" ? palette.brand : palette.muted, fontSize: 10, fontWeight: "900" }}>INICIO</Text>
-        </Pressable>
-        <Pressable onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }} style={{ alignItems: "center", gap: 3, minWidth: 76, paddingVertical: 3 }}>
-          <Text style={{ fontSize: 20, color: activeTab === "orders" ? palette.brand : palette.muted }}>▤</Text><Text style={{ color: activeTab === "orders" ? palette.brand : palette.muted, fontSize: 10, fontWeight: "900" }}>PEDIDOS</Text>
-        </Pressable>
-        <Pressable onPress={() => setSheet("cart")} style={{ alignItems: "center", gap: 3, minWidth: 76, paddingVertical: 3 }}>
-          <View><Text style={{ fontSize: 20, color: palette.muted }}>🛍️</Text>{itemCount > 0 && <View style={{ position: "absolute", right: -9, top: -4, backgroundColor: palette.orange, borderRadius: 10, paddingHorizontal: 5 }}><Text style={{ color: "#fff", fontSize: 9, fontWeight: "900" }}>{itemCount}</Text></View>}</View>
-          <Text style={{ color: palette.muted, fontSize: 10, fontWeight: "800" }}>BOLSA</Text>
-        </Pressable>
-      </View>
+      <CustomerDrawer
+        visible={drawerVisible}
+        name={session!.user.name}
+        email={session!.user.email}
+        avatar={profileAvatar}
+        onClose={() => setDrawerVisible(false)}
+        onSelect={handleDrawerSelect}
+        onProfile={() => { setDrawerVisible(false); setSheet("profile"); }}
+        onSignOut={() => { setDrawerVisible(false); void signOut(); }}
+      />
 
       <Modal visible={sheet !== null} transparent animationType="slide" onRequestClose={() => setSheet(null)}>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "#15192366" }}>
           <Pressable onPress={() => setSheet(null)} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
-          <View style={{ width: "100%", maxWidth: 560, maxHeight: "82%", alignSelf: "center", backgroundColor: "#fff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 30, gap: 12 }}>
+          <View style={{ width: "100%", maxWidth: 560, maxHeight: "82%", alignSelf: "center", backgroundColor: theme.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 30, gap: 12 }}>
             <View style={{ width: 42, height: 4, borderRadius: 3, backgroundColor: "#D9DCE2", alignSelf: "center", marginBottom: 4 }} />
-            {sheet === "profile" && <>
-              <View style={{ alignItems: "center", gap: 6, paddingVertical: 10 }}>
-                <View style={{ width: 68, height: 68, borderRadius: 24, backgroundColor: "#E8F5F3", alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ fontSize: 32 }}>👤</Text>
+            {sheet === "profile" && (
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
+                <View style={{ alignItems: "center", gap: 6, paddingVertical: 8 }}>
+                  <Avatar value={profileAvatar} name={session!.user.name} size={76} style={{ borderWidth: 5, borderColor: theme.soft }} />
+                  <Text style={[styles.title, { textAlign: "center", color: palette.ink }]}>Mi perfil</Text>
+                  <Text style={[styles.subtitle, { color: palette.muted }]}>Tu cuenta CercaGo</Text>
                 </View>
-                <Text style={styles.title}>{session!.user.name}</Text>
-                <Text style={styles.subtitle}>{session!.user.email}</Text>
-              </View>
-              <View style={{ backgroundColor: "#F7F8FA", borderRadius: 16, padding: 14, gap: 5 }}>
-                <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "800" }}>DIRECCIÓN DE ENTREGA</Text>
-                <Text style={{ color: palette.ink, fontWeight: "800" }}>
-                  {addresses.find((item) => item.id === selectedAddressId)?.address_line ?? "Aún no has agregado una dirección"}
-                </Text>
-              </View>
-              <Button title="📍  Administrar mis direcciones" secondary onPress={() => setSheet("location")} />
-              <Button title="Cerrar sesión" secondary onPress={() => void signOut()} />
+
+                <View style={{ backgroundColor: theme.background, borderRadius: 16, padding: 14, gap: 11 }}>
+                  <Text style={{ color: theme.ink, fontWeight: "900", fontSize: 15 }}>Foto y avatar</Text>
+                  <ProfilePhotoPicker onSelect={(value) => void saveProfileAvatar(value)} />
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {illustratedAvatars.map((avatar) => (
+                      <Pressable key={avatar} accessibilityRole="button" accessibilityLabel={`Elegir avatar ${avatar}`} onPress={() => void saveProfileAvatar(avatar)} style={{
+                        width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center",
+                        backgroundColor: profileAvatar === avatar ? theme.soft : theme.surface,
+                        borderWidth: profileAvatar === avatar ? 2 : 1, borderColor: profileAvatar === avatar ? theme.primary : theme.border,
+                      }}>
+                        <Text style={{ fontSize: 22 }}>{avatar}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={{ backgroundColor: theme.background, borderRadius: 16, padding: 14, gap: 11 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ color: palette.ink, fontWeight: "900", fontSize: 15 }}>Información de contacto</Text>
+                    <Pressable accessibilityRole="button" onPress={() => {
+                      if (profileEditing) {
+                        setProfileName(session!.user.name);
+                        setProfileEmail(session!.user.email);
+                        setProfilePhone(session!.user.phone ?? "");
+                      }
+                      setProfileEditing((value) => !value);
+                    }}>
+                      <Text style={{ color: palette.brand, fontSize: 12, fontWeight: "900" }}>{profileEditing ? "Cancelar" : "Editar"}</Text>
+                    </Pressable>
+                  </View>
+                  {profileEditing ? (
+                    <>
+                      <Field label="Nombre" value={profileName} onChangeText={setProfileName} placeholder="Tu nombre" />
+                      <Field label="Correo electrónico" value={profileEmail} onChangeText={setProfileEmail} placeholder="tu@email.com" keyboardType="email-address" />
+                      <Field label="Teléfono (+58)" value={profilePhone} onChangeText={(value) => setProfilePhone(value.replace(/[^\d+]/g, "").slice(0, 13))} placeholder="412 000 0000" keyboardType="phone-pad" />
+                      <Button title={profileSaving ? "Guardando…" : "Guardar cambios"} onPress={() => void saveProfile()} disabled={profileSaving} />
+                    </>
+                  ) : (
+                    <>
+                      <View style={{ gap: 4 }}>
+                        <Text style={[styles.label, { color: palette.ink }]}>Nombre</Text>
+                        <Text style={{ color: palette.ink, fontWeight: "700" }}>{session!.user.name}</Text>
+                      </View>
+                      <View style={{ gap: 4 }}>
+                        <Text style={[styles.label, { color: palette.ink }]}>Correo electrónico</Text>
+                        <Text style={{ color: palette.ink }}>{session!.user.email}</Text>
+                      </View>
+                      <View style={{ gap: 4 }}>
+                        <Text style={[styles.label, { color: palette.ink }]}>Teléfono</Text>
+                        <Text style={{ color: session!.user.phone ? palette.ink : palette.muted }}>{session!.user.phone || "Agrega un teléfono de contacto"}</Text>
+                      </View>
+                    </>
+                  )}
+                </View>
+
+                <View style={{ backgroundColor: theme.background, borderRadius: 16, padding: 14, gap: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <Text style={{ color: palette.ink, fontWeight: "900", fontSize: 15 }}>Mis direcciones</Text>
+                      <Text style={[styles.subtitle, { color: palette.muted }]}>{addresses.length ? `${addresses.length} guardada${addresses.length === 1 ? "" : "s"}` : "Agrega una dirección para tus pedidos"}</Text>
+                    </View>
+                    <Pressable accessibilityRole="button" onPress={() => setSheet("location")} style={{ padding: 9, borderRadius: 11, backgroundColor: "#E1F2F0" }}>
+                      <Text style={{ color: "#0D8179", fontSize: 12, fontWeight: "900" }}>Administrar</Text>
+                    </Pressable>
+                  </View>
+                  {addresses.slice(0, 2).map((saved) => (
+                    <View key={saved.id} style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 11, gap: 3 }}>
+                      <Text style={{ color: palette.ink, fontSize: 12, fontWeight: "800" }}>{saved.label}{saved.is_default ? " · Predeterminada" : ""}</Text>
+                      <Text numberOfLines={2} style={{ color: palette.muted, fontSize: 12 }}>{saved.address_line}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.background, borderRadius: 16, padding: 14, gap: 12 }}>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={{ color: palette.ink, fontWeight: "900", fontSize: 14 }}>Avisos de pedidos</Text>
+                    <Text style={[styles.subtitle, { color: palette.muted }]}>Preferencia guardada en este dispositivo</Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: notificationsEnabled }}
+                    accessibilityLabel="Avisos de pedidos"
+                    onPress={() => void toggleNotifications()}
+                    style={{ width: 50, height: 30, borderRadius: 15, padding: 3, justifyContent: "center", backgroundColor: notificationsEnabled ? palette.brand : "#D0D5DD" }}
+                  >
+                    <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: "#fff", alignSelf: notificationsEnabled ? "flex-end" : "flex-start" }} />
+                  </Pressable>
+                </View>
+                <Text style={{ color: palette.muted, fontSize: 11, lineHeight: 16 }}>La preferencia se guarda aquí; para recibir avisos push hace falta habilitar un servicio de notificaciones.</Text>
+                <Button title="Cerrar sesión" secondary onPress={() => void signOut()} />
+              </ScrollView>
+            )}
+            {sheet === "rate" && <>
+              <Text style={[styles.title, { color: palette.ink }]}>Tasa BCV del día</Text>
+              <Text style={[styles.subtitle, { color: palette.muted }]}>Referencia oficial para tus compras en bolívares.</Text>
+              <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} fallback={exchangeRateFallback} />
+              <Text style={{ color: palette.muted, fontSize: 12, lineHeight: 18 }}>La tasa se consulta desde el servicio de CercaGo. Si no está disponible, no mostramos un valor estimado.</Text>
+              <Button title="Listo" onPress={() => setSheet(null)} />
             </>}
+            {sheet === "settings" && (
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>
+                <Text style={[styles.title, { color: theme.ink }]}>Ajustes</Text>
+                <Text style={[styles.subtitle, { color: theme.muted }]}>Personaliza el aspecto y los anuncios de CercaGo. Los cambios se guardan en este dispositivo.</Text>
+                <Text style={{ color: theme.ink, fontSize: 15, fontWeight: "900", marginTop: 6 }}>Apariencia</Text>
+                <Text style={{ color: theme.muted, fontSize: 12 }}>Elige los colores que quieres usar en la aplicación.</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9 }}>
+                  {themeOptions.map((option) => (
+                    <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: theme.id === option.id }} onPress={() => {
+                      void setTheme(option.id).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo guardar el tema."));
+                    }} style={{
+                      minWidth: "30%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: 8,
+                      paddingVertical: 10, paddingHorizontal: 9, borderRadius: 13,
+                      borderWidth: theme.id === option.id ? 2 : 1,
+                      borderColor: theme.id === option.id ? theme.primary : theme.border,
+                      backgroundColor: theme.surface,
+                    }}>
+                      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: option.swatch }} />
+                      <Text style={{ color: theme.ink, fontSize: 11, fontWeight: "800", flexShrink: 1 }}>{option.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={{ color: theme.ink, fontSize: 15, fontWeight: "900", marginTop: 8 }}>Anuncios del inicio</Text>
+                <Text style={{ color: theme.muted, fontSize: 12 }}>La configuración local se guarda en este dispositivo; el manifiesto publicado permite actualizar la web sin compilar un APK.</Text>
+                <TextInput
+                  accessibilityLabel="Configuración de anuncios JSON"
+                  value={promotionConfig}
+                  onChangeText={setPromotionConfig}
+                  multiline
+                  autoCapitalize="none"
+                  textAlignVertical="top"
+                  style={{ minHeight: 260, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12, color: theme.ink, backgroundColor: theme.surface, fontFamily: Platform.OS === "web" ? "monospace" : undefined, fontSize: 11 }}
+                />
+                <Text style={{ color: theme.muted, fontSize: 11, lineHeight: 16 }}>Cada anuncio usa id, tag, title, body, mediaType (image o video), mediaUrl HTTPS, tint y linkUrl HTTPS opcional.</Text>
+                <Button title="Guardar anuncios en este dispositivo" onPress={() => void savePromotionConfig()} />
+                <Button title="Restaurar anuncios publicados en la web" secondary onPress={() => void resetPromotionConfig()} />
+                <Button title="Cerrar" secondary onPress={() => setSheet(null)} />
+              </ScrollView>
+            )}
             {sheet === "location" && <>
-              <Text style={styles.title}>Mis direcciones</Text>
-              <Text style={styles.subtitle}>Administra tus direcciones y elige dónde recibir.</Text>
+              <Text style={[styles.title, { color: palette.ink }]}>Mis direcciones</Text>
+              <Text style={[styles.subtitle, { color: palette.muted }]}>Administra tus direcciones y elige dónde recibir.</Text>
               {addresses.map((saved) => (
-                <View key={saved.id} style={{ padding: 12, borderRadius: 15, backgroundColor: selectedAddressId === saved.id ? "#FFF0EC" : "#F7F8FA", gap: 8 }}>
+                <View key={saved.id} style={{ padding: 12, borderRadius: 15, backgroundColor: selectedAddressId === saved.id ? theme.soft : theme.background, gap: 8 }}>
                   <Pressable onPress={() => { setSelectedAddressId(saved.id); setAddress(""); setSheet(null); }} style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={{ flex: 1, color: palette.ink, fontWeight: "700" }}>⌂  {saved.label}{saved.is_default ? " · Predeterminada" : ""} · {saved.address_line}</Text>
                     {selectedAddressId === saved.id && <Text style={{ color: palette.orange }}>✓</Text>}
@@ -674,25 +993,25 @@ export function CustomerScreen() {
                         ? { latitude: Number(saved.latitude), longitude: Number(saved.longitude) }
                         : null);
                     }}><Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>Editar</Text></Pressable>
-                    <Pressable onPress={() => setDeleteAddressCandidate(saved)}><Text style={{ color: "#B42318", fontSize: 12, fontWeight: "800" }}>Eliminar</Text></Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${saved.label}`} onPress={() => setDeleteAddressCandidate(saved)}><Text style={{ color: "#B42318", fontSize: 16, fontWeight: "800" }}>🗑</Text></Pressable>
                   </View>
                 </View>
               ))}
-              <TextInput placeholder="Etiqueta (Casa, trabajo…)" value={addressLabel} onChangeText={setAddressLabel} style={{ minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: "#E5E7EB", paddingHorizontal: 14 }} />
-              <TextInput placeholder="Calle, número, ciudad" value={address} onChangeText={(value) => { setAddress(value); setAddressCoordinates(null); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: "#E5E7EB", paddingHorizontal: 14 }} />
+              <TextInput placeholder="Etiqueta (Casa, trabajo…)" placeholderTextColor={theme.muted} value={addressLabel} onChangeText={setAddressLabel} style={{ minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
+              <TextInput placeholder="Calle, número, ciudad" placeholderTextColor={theme.muted} value={address} onChangeText={(value) => { setAddress(value); setAddressCoordinates(null); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
               <Button title={addressCoordinates ? "Cambiar ubicación en el mapa" : "Agregar ubicación con mapa y GPS"} secondary onPress={() => setLocationPickerVisible(true)} />
               {addressCoordinates && <Text style={{ color: palette.green, fontSize: 11 }}>📍 Coordenadas guardadas: {addressCoordinates.latitude.toFixed(5)}, {addressCoordinates.longitude.toFixed(5)}</Text>}
               {address.trim() && <Button title={editingAddressId ? "Guardar cambios" : "Agregar dirección"} secondary onPress={() => void saveAddress()} />}
               <Button title="Listo" onPress={() => setSheet(null)} />
             </>}
             {sheet === "cart" && <>
-              <Text style={styles.title}>Tu pedido</Text>
-              <Text style={styles.subtitle}>{selected?.name ?? "Tu bolsa CercaGo"}</Text>
+              <Text style={[styles.title, { color: palette.ink }]}>Tu pedido</Text>
+              <Text style={[styles.subtitle, { color: palette.muted }]}>{selected?.name ?? "Tu bolsa CercaGo"}</Text>
               {itemCount === 0 ? (
-                <Text style={[styles.subtitle, { paddingVertical: 20, textAlign: "center" }]}>Tu bolsa está esperando algo delicioso.</Text>
+                <Text style={[styles.subtitle, { paddingVertical: 20, textAlign: "center", color: palette.muted }]}>Tu bolsa está esperando algo delicioso.</Text>
               ) : products.filter((product) => cart[product.id]).map((product) => (
                 <View key={product.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8 }}>
-                  <View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: "800" }}>{product.name}</Text><Text style={styles.subtitle}>{formatDualPrice(product.price, exchangeRate)}</Text></View>
+                  <View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: "800" }}>{product.name}</Text><Text style={[styles.subtitle, { color: palette.muted }]}>{formatDualPrice(product.price, exchangeRate)}</Text></View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                     <Pressable onPress={() => setCart((value) => {
                       const count = (value[product.id] ?? 0) - 1;
@@ -705,13 +1024,13 @@ export function CustomerScreen() {
                 </View>
               ))}
               {itemCount > 0 && <>
-                <Text style={styles.section}>Dirección de entrega</Text>
+                <Text style={[styles.section, { color: palette.ink }]}>Dirección de entrega</Text>
                 {addresses.map((saved) => (
-                  <Pressable key={saved.id} onPress={() => { setSelectedAddressId(saved.id); setAddress(""); }} style={{ padding: 12, borderRadius: 13, backgroundColor: selectedAddressId === saved.id ? "#FFF0EC" : "#F7F8FA" }}>
+                  <Pressable key={saved.id} onPress={() => { setSelectedAddressId(saved.id); setAddress(""); }} style={{ padding: 12, borderRadius: 13, backgroundColor: selectedAddressId === saved.id ? theme.soft : theme.background }}>
                     <Text style={{ color: palette.ink, fontWeight: "700" }}>{selectedAddressId === saved.id ? "✓  " : ""}{saved.label}: {saved.address_line}</Text>
                   </Pressable>
                 ))}
-                <TextInput placeholder="Usar otra dirección" value={address} onChangeText={(value) => { setAddress(value); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: "#E5E7EB", paddingHorizontal: 14 }} />
+                <TextInput placeholder="Usar otra dirección" placeholderTextColor={theme.muted} value={address} onChangeText={(value) => { setAddress(value); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
                 <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 }}>
                   <Text style={{ color: palette.muted }}>Total · {selected?.free_delivery ? "delivery gratis" : `envío ${formatDualPrice(deliveryFee, exchangeRate)}`}</Text>
                   <Text style={{ color: palette.ink, fontWeight: "900" }}>{formatDualPrice(cartTotal + deliveryFee, exchangeRate)}</Text>
@@ -722,15 +1041,15 @@ export function CustomerScreen() {
               </>}
             </>}
             {sheet === "notice" && <>
-              <View style={{ width: 58, height: 58, borderRadius: 20, backgroundColor: "#FFF0EC", alignItems: "center", justifyContent: "center", alignSelf: "center", marginTop: 8 }}>
+              <View style={{ width: 58, height: 58, borderRadius: 20, backgroundColor: theme.soft, alignItems: "center", justifyContent: "center", alignSelf: "center", marginTop: 8 }}>
                 <Text style={{ fontSize: 28 }}>✦</Text>
               </View>
-              <Text style={[styles.title, { textAlign: "center", marginTop: 6 }]}>{notice.title || "¡Todo cerca de ti!"}</Text>
-              <Text style={[styles.subtitle, { textAlign: "center", marginVertical: 4 }]}>{notice.body || "Las novedades de tus pedidos aparecerán aquí."}</Text>
+              <Text style={[styles.title, { textAlign: "center", marginTop: 6, color: palette.ink }]}>{notice.title || "¡Todo cerca de ti!"}</Text>
+              <Text style={[styles.subtitle, { textAlign: "center", marginVertical: 4, color: palette.muted }]}>{notice.body || "Las novedades de tus pedidos aparecerán aquí."}</Text>
               {orders.slice(0, 3).map((order) => (
-                <View key={order.id} style={{ padding: 13, backgroundColor: "#F7F8FA", borderRadius: 14, gap: 7 }}>
+                <View key={order.id} style={{ padding: 13, backgroundColor: theme.background, borderRadius: 14, gap: 7 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
-                    <View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: "800" }}>{order.store_name ?? "Tu pedido"}</Text><Text style={styles.subtitle}>{order.delivery_address}</Text></View>
+                    <View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: "800" }}>{order.store_name ?? "Tu pedido"}</Text><Text style={[styles.subtitle, { color: palette.muted }]}>{order.delivery_address}</Text></View>
                     <Text style={{ color: palette.orange, fontSize: 11, fontWeight: "900" }}>{statusLabel(order.status)}</Text>
                   </View>
                   {order.items?.map((item) => (
@@ -755,9 +1074,9 @@ export function CustomerScreen() {
       </Modal>
       <Modal visible={Boolean(deleteAddressCandidate)} transparent animationType="fade" onRequestClose={() => setDeleteAddressCandidate(null)}>
         <View style={{ flex: 1, justifyContent: "center", padding: 22, backgroundColor: "#15192388" }}>
-          <View style={{ backgroundColor: "#fff", borderRadius: 20, padding: 20, gap: 12 }}>
-            <Text style={styles.title}>Eliminar dirección</Text>
-            <Text style={styles.subtitle}>¿Quieres eliminar {deleteAddressCandidate?.label}?</Text>
+          <View style={{ backgroundColor: theme.surface, borderRadius: 20, padding: 20, gap: 12 }}>
+            <Text style={[styles.title, { color: palette.ink }]}>Eliminar dirección</Text>
+            <Text style={[styles.subtitle, { color: palette.muted }]}>¿Quieres eliminar {deleteAddressCandidate?.label}?</Text>
             <Button title="Eliminar dirección" onPress={() => {
               const candidate = deleteAddressCandidate;
               setDeleteAddressCandidate(null);
@@ -769,20 +1088,20 @@ export function CustomerScreen() {
       </Modal>
       <Modal visible={Boolean(reviewOrder)} transparent animationType="fade" onRequestClose={() => setReviewOrder(null)}>
         <View style={{ flex: 1, justifyContent: "center", padding: 20, backgroundColor: "#15192388" }}>
-          <View style={{ width: "100%", maxWidth: 480, alignSelf: "center", backgroundColor: "#fff", borderRadius: 24, padding: 22, gap: 12 }}>
-            <Text style={styles.title}>¿Cómo estuvo tu pedido?</Text>
-            <Text style={styles.subtitle}>Califica a {reviewOrder?.store_name ?? "la tienda"} para ayudar a otros vecinos.</Text>
+          <View style={{ width: "100%", maxWidth: 480, alignSelf: "center", backgroundColor: theme.surface, borderRadius: 24, padding: 22, gap: 12 }}>
+            <Text style={[styles.title, { color: palette.ink }]}>¿Cómo estuvo tu pedido?</Text>
+            <Text style={[styles.subtitle, { color: palette.muted }]}>Califica a {reviewOrder?.store_name ?? "la tienda"} para ayudar a otros vecinos.</Text>
             <Text style={{ color: palette.ink, fontWeight: "800" }}>Comercio</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               {[1, 2, 3, 4, 5].map((value) => <Pressable key={value} onPress={() => setStoreRating(value)}><Text style={{ fontSize: 32, color: value <= storeRating ? "#F5A623" : "#D0D5DD" }}>★</Text></Pressable>)}
             </View>
-            <TextInput value={reviewComment} onChangeText={setReviewComment} placeholder="Comentario para el comercio (opcional)" multiline style={{ minHeight: 76, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 13, padding: 12, textAlignVertical: "top" }} />
+            <TextInput value={reviewComment} onChangeText={setReviewComment} placeholder="Comentario para el comercio (opcional)" placeholderTextColor={theme.muted} multiline style={{ minHeight: 76, borderWidth: 1, borderColor: theme.border, borderRadius: 13, padding: 12, textAlignVertical: "top", backgroundColor: theme.surface, color: theme.ink }} />
             {reviewOrder?.driver_id && <>
               <Text style={{ color: palette.ink, fontWeight: "800" }}>Repartidor (opcional)</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {[1, 2, 3, 4, 5].map((value) => <Pressable key={value} onPress={() => setDriverRating(value)}><Text style={{ fontSize: 28, color: value <= driverRating ? "#F5A623" : "#D0D5DD" }}>★</Text></Pressable>)}
               </View>
-              <TextInput value={driverComment} onChangeText={setDriverComment} placeholder="Comentario para el repartidor (opcional)" multiline style={{ minHeight: 64, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 13, padding: 12, textAlignVertical: "top" }} />
+              <TextInput value={driverComment} onChangeText={setDriverComment} placeholder="Comentario para el repartidor (opcional)" placeholderTextColor={theme.muted} multiline style={{ minHeight: 64, borderWidth: 1, borderColor: theme.border, borderRadius: 13, padding: 12, textAlignVertical: "top", backgroundColor: theme.surface, color: theme.ink }} />
             </>}
             <Button title="Enviar reseña" onPress={() => void submitReview()} />
             <Button title="Más tarde" secondary onPress={() => setReviewOrder(null)} />
