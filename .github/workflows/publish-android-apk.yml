@@ -17,7 +17,7 @@ jobs:
 
       - name: Download APK from EAS
         env:
-          APK_URL: https://expo.dev/artifacts/eas/D-da9fFhtZEmTFIK3mTztkzzxUmfdtSfs-e2SWbDtB4.apk
+          APK_URL: https://expo.dev/artifacts/eas/pB6B7rK73edmo-HoYPz8Q2PLlXJRBuDiejqOa-9w4kA.apk
         run: |
           curl --fail --location --retry 3 "$APK_URL" --output CercaGo.apk
           test "$(dd if=CercaGo.apk bs=1 count=2 2>/dev/null)" = "PK"
