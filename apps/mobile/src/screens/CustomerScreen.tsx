@@ -27,7 +27,7 @@ import { formatDualPrice } from "../currency";
 import type { Address, Category, Order, Product, Store } from "../types";
 import { socket } from "./socketRef";
 
-type Sheet = "location" | "cart" | "notice" | null;
+type Sheet = "profile" | "location" | "cart" | "notice" | null;
 type CustomerTab = "home" | "orders";
 
 const palette = {
@@ -409,14 +409,6 @@ export function CustomerScreen() {
             borderBottomLeftRadius: 24, borderBottomRightRadius: 24, gap: 12,
           }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Administrar direcciones"
-                onPress={() => setSheet("location")}
-                style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
-              >
-                <Text style={{ color: "#fff", fontSize: 22 }}>☰</Text>
-              </Pressable>
               <Image
                 source={require("../../assets/cercago-logo.png")}
                 resizeMode="cover"
@@ -426,6 +418,14 @@ export function CustomerScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel="Abrir mi perfil"
+                  onPress={() => setSheet("profile")}
+                  style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                >
+                  <Text style={{ fontSize: 20 }}>👤</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
                   accessibilityLabel="Ver pedidos y mensajes"
                   onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }}
                   style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
@@ -433,30 +433,8 @@ export function CustomerScreen() {
                   <Text style={{ fontSize: 20 }}>🔔</Text>
                   {orders.length > 0 && <View style={{ position: "absolute", right: 6, top: 5, width: 8, height: 8, borderRadius: 5, backgroundColor: palette.orange }} />}
                 </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Cerrar sesión"
-                  onPress={() => void signOut()}
-                  style={{ paddingHorizontal: 8, paddingVertical: 10 }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>Salir</Text>
-                </Pressable>
               </View>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSheet("location")}
-              style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, backgroundColor: "#FFFFFF20" }}
-            >
-              <Text style={{ fontSize: 17 }}>📍</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: "#D7F5F1", fontSize: 10, fontWeight: "800" }}>ENTREGAR EN</Text>
-                <Text numberOfLines={1} style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>
-                  {addresses.find((item) => item.id === selectedAddressId)?.address_line ?? "Agrega tu ubicación"}
-                </Text>
-              </View>
-              <Text style={{ color: "#fff", fontSize: 16 }}>⌄</Text>
-            </Pressable>
             {activeTab === "home" && (
               <View style={{ backgroundColor: "#fff", borderRadius: 16, paddingHorizontal: 14, minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Text style={{ fontSize: 19, color: "#9196A0" }}>⌕</Text>
@@ -660,8 +638,25 @@ export function CustomerScreen() {
           <Pressable onPress={() => setSheet(null)} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
           <View style={{ width: "100%", maxWidth: 560, maxHeight: "82%", alignSelf: "center", backgroundColor: "#fff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 30, gap: 12 }}>
             <View style={{ width: 42, height: 4, borderRadius: 3, backgroundColor: "#D9DCE2", alignSelf: "center", marginBottom: 4 }} />
+            {sheet === "profile" && <>
+              <View style={{ alignItems: "center", gap: 6, paddingVertical: 10 }}>
+                <View style={{ width: 68, height: 68, borderRadius: 24, backgroundColor: "#E8F5F3", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 32 }}>👤</Text>
+                </View>
+                <Text style={styles.title}>{session!.user.name}</Text>
+                <Text style={styles.subtitle}>{session!.user.email}</Text>
+              </View>
+              <View style={{ backgroundColor: "#F7F8FA", borderRadius: 16, padding: 14, gap: 5 }}>
+                <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "800" }}>DIRECCIÓN DE ENTREGA</Text>
+                <Text style={{ color: palette.ink, fontWeight: "800" }}>
+                  {addresses.find((item) => item.id === selectedAddressId)?.address_line ?? "Aún no has agregado una dirección"}
+                </Text>
+              </View>
+              <Button title="📍  Administrar mis direcciones" secondary onPress={() => setSheet("location")} />
+              <Button title="Cerrar sesión" secondary onPress={() => void signOut()} />
+            </>}
             {sheet === "location" && <>
-              <Text style={styles.title}>¿A dónde lo llevamos?</Text>
+              <Text style={styles.title}>Mis direcciones</Text>
               <Text style={styles.subtitle}>Administra tus direcciones y elige dónde recibir.</Text>
               {addresses.map((saved) => (
                 <View key={saved.id} style={{ padding: 12, borderRadius: 15, backgroundColor: selectedAddressId === saved.id ? "#FFF0EC" : "#F7F8FA", gap: 8 }}>

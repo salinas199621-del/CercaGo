@@ -28,8 +28,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release create "$GITHUB_REF_NAME" CercaGo.apk \
-            --title "CercaGo para Android 1.0.0" \
-            --notes "Instala CercaGo en Android descargando CercaGo.apk. Esta versión usa el GPS para guardar coordenadas; el mapa visual se habilitará en una versión futura." \
+            --title "CercaGo para Android ${GITHUB_REF_NAME#apk-v}" \
+            --notes "Descarga e instala CercaGo en Android. Versión ${GITHUB_REF_NAME#apk-v}." \
             2>release-error.log; then
             error_message="$(tr '\r\n' '  ' < release-error.log)"
             error_message="${error_message//%/%25}"
