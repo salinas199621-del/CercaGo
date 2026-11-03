@@ -2,13 +2,17 @@ import { io, Socket } from "socket.io-client";
 import { Platform } from "react-native";
 import { demoApi, isDemoMode } from "./demoApi";
 
-const defaultApiUrl = Platform.OS === "android" ? "http://10.0.2.2:4000/api" : "http://localhost:4000/api";
+const defaultApiHost = Platform.OS === "web" && typeof window !== "undefined"
+  ? window.location.hostname
+  : Platform.OS === "android" ? "10.0.2.2" : "localhost";
+const defaultApiUrl = `http://${defaultApiHost}:4000/api`;
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? defaultApiUrl;
 const BASE_URL = API_URL.replace(/\/api\/?$/, "");
 let socket: Socket | null = null;
 
 export async function api<T>(path: string, token?: string, init: RequestInit = {}): Promise<T> {
-  if (token === "demo" || isDemoMode()) {
+  const isPublicExchangeRate = path === "/exchange-rate" && (init.method ?? "GET").toUpperCase() === "GET";
+  if (!isPublicExchangeRate && (token === "demo" || isDemoMode())) {
     await new Promise((resolve) => setTimeout(resolve, 180));
     return demoApi<T>(path, init);
   }

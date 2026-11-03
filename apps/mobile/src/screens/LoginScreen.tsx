@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, styles } from "../components/UI";
+import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 
 export function LoginScreen() {
-  const { signIn, signUp, demoSignIn } = useAuth();
+  const { signIn, signUp, demoSignIn, exchangeRate, exchangeRateValueDate } = useAuth();
   const [registering, setRegistering] = useState(false);
   const [role, setRole] = useState<"customer" | "store" | "driver">("customer");
   const [name, setName] = useState("");
@@ -53,6 +54,9 @@ export function LoginScreen() {
         <View style={{ maxWidth: 290, gap: 5 }}>
           <Text style={{ color: "#191B22", fontSize: 28, lineHeight: 33, fontWeight: "900" }}>{registering ? "Tu barrio te da la bienvenida" : "Todo lo bueno, más cerca."}</Text>
           <Text style={{ color: "#777D89", fontSize: 13 }}>Descubre, pide y apoya a los comercios de tu comunidad.</Text>
+        </View>
+        <View style={{ marginTop: 14 }}>
+          <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
         </View>
       </View>
       {!registering && <>

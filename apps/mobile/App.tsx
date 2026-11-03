@@ -26,7 +26,7 @@ function AdminNotice() {
 }
 
 function RootNavigator() {
-  const { session, loading, signOut } = useAuth();
+  const { session, loading, signOut, exchangeRate, exchangeRateValueDate } = useAuth();
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [onboardingLoaded, setOnboardingLoaded] = useState(false);
   useEffect(() => {
@@ -40,7 +40,7 @@ function RootNavigator() {
     setOnboardingDone(true);
   }
   if (loading || !onboardingLoaded) return <View style={{ flex: 1, justifyContent: "center" }}><ActivityIndicator size="large" color="#F45B3C" /></View>;
-  if (!session && !onboardingDone) return <OnboardingScreen onComplete={() => void completeOnboarding()} />;
+  if (!session && !onboardingDone) return <OnboardingScreen exchangeRate={exchangeRate} exchangeRateValueDate={exchangeRateValueDate} onComplete={() => void completeOnboarding()} />;
   return (
     <NavigationContainer>
       <Stack.Navigator>

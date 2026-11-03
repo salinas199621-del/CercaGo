@@ -5,6 +5,7 @@ type User = { id: string; name: string; email: string; role: string; active: boo
 type Store = { id: string; name: string; address: string; owner_name: string; owner_email: string; approved: boolean; active: boolean; commission_rate: number };
 type StoreUpdate = { approved?: boolean; active?: boolean; commissionRate?: number };
 type Metrics = { users: Array<{ role: string; count: number }>; stores: { total: number; approved: number }; orders: Array<{ status: string; count: number }>; sales: { gross_sales: string; order_count: number } };
+type ExchangeRate = { rate: number; source: "BCV"; valueDate: string; updatedAt: string };
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
@@ -26,6 +27,8 @@ export default function App() {
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [commission, setCommission] = useState("10");
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
+  const [exchangeRateError, setExchangeRateError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -44,6 +47,13 @@ export default function App() {
       setStores(nextStores);
       setUsers(nextUsers);
       setCommission(String(setting.rate));
+      try {
+        setExchangeRate(await request<ExchangeRate>("/exchange-rate", token));
+        setExchangeRateError("");
+      } catch (reason) {
+        setExchangeRate(null);
+        setExchangeRateError(reason instanceof Error ? reason.message : "La tasa del BCV no está disponible.");
+      }
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "No se pudieron cargar los datos";
       setError(message);
@@ -103,6 +113,20 @@ export default function App() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la comisión"); }
   }
 
+  async function refreshExchangeRate() {
+    setBusy(true);
+    setError("");
+    setExchangeRateError("");
+    try {
+      setExchangeRate(await request<ExchangeRate>("/admin/settings/exchange-rate/refresh", token, { method: "POST" }));
+    } catch (reason) {
+      setExchangeRateError(reason instanceof Error ? reason.message : "No se pudo consultar la tasa oficial del BCV");
+    } finally { setBusy(false); }
+  }
+
+  const salesInBolivars = new Intl.NumberFormat("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    .format(Number(metrics?.sales.gross_sales ?? 0) * (exchangeRate?.rate ?? 0));
+
   if (!token) return (
     <main className="login-shell">
       <form className="login-card" onSubmit={(event) => void login(event)}>
@@ -126,7 +150,7 @@ export default function App() {
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">Actualizando información…</p>}
       <section className="metrics">
-        <article><span>Ventas brutas</span><strong>${Number(metrics?.sales.gross_sales ?? 0).toFixed(2)}</strong></article>
+        <article><span>Ventas brutas</span><strong>${Number(metrics?.sales.gross_sales ?? 0).toFixed(2)}</strong><small>Bs. {salesInBolivars}</small></article>
         <article><span>Pedidos no cancelados</span><strong>{metrics?.sales.order_count ?? 0}</strong></article>
         <article><span>Comercios aprobados</span><strong>{metrics?.stores.approved ?? 0} / {metrics?.stores.total ?? 0}</strong></article>
         <article><span>Usuarios registrados</span><strong>{metrics?.users.reduce((sum, item) => sum + item.count, 0) ?? 0}</strong></article>
@@ -137,6 +161,18 @@ export default function App() {
           <input type="number" min="0" max="100" step="0.01" value={commission} onChange={(event) => setCommission(event.target.value)} aria-label="Porcentaje de comisión" />
           <span>%</span><button>Guardar</button>
         </form>
+      </section>
+      <section className="panel commission-panel">
+        <div>
+          <h2>Tasa oficial del BCV</h2>
+          <p className="muted">
+            {exchangeRate
+              ? `1 USD = Bs. ${exchangeRate.rate} · Fecha de valor ${new Intl.DateTimeFormat("es-VE", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${exchangeRate.valueDate}T12:00:00Z`))}`
+              : exchangeRateError || "Consultando al BCV…"}
+          </p>
+        </div>
+        <button disabled={busy} onClick={() => void refreshExchangeRate()}>{busy ? "Consultando…" : "Actualizar desde BCV"}</button>
+        {exchangeRateError && <p role="status" className="muted">{exchangeRateError}</p>}
       </section>
       <section className="panel">
         <div className="section-heading"><div><h2>Comercios afiliados</h2><p className="muted">Aprobación, disponibilidad y comisión por comercio.</p></div></div>

@@ -24,7 +24,8 @@ CREATE TABLE categories (
   active BOOLEAN NOT NULL DEFAULT TRUE
 );
 INSERT INTO categories(name) VALUES
-  ('Restaurantes'), ('Supermercados'), ('Farmacias'), ('Tiendas'), ('Cafeterías')
+  ('Restaurantes'), ('Supermercados'), ('Farmacias'), ('Tiendas'), ('Cafeterías'),
+  ('Comidas'), ('Bodegas'), ('Repuestos')
 ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE stores (
@@ -39,6 +40,11 @@ CREATE TABLE stores (
   image_url TEXT,
   rating NUMERIC(2,1) NOT NULL DEFAULT 0 CHECK (rating BETWEEN 0 AND 5),
   delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 2.99 CHECK (delivery_fee >= 0),
+  has_own_delivery BOOLEAN NOT NULL DEFAULT FALSE,
+  free_delivery BOOLEAN NOT NULL DEFAULT FALSE,
+  payment_bank VARCHAR(100),
+  payment_document VARCHAR(32),
+  payment_phone VARCHAR(32),
   estimated_delivery_minutes INTEGER NOT NULL DEFAULT 30 CHECK (estimated_delivery_minutes > 0),
   commission_rate NUMERIC(5,2) NOT NULL DEFAULT 10 CHECK (commission_rate BETWEEN 0 AND 100),
   approved BOOLEAN NOT NULL DEFAULT FALSE,
@@ -54,6 +60,7 @@ CREATE TABLE products (
   name VARCHAR(160) NOT NULL,
   description TEXT,
   price NUMERIC(12,2) NOT NULL CHECK (price >= 0),
+  stock_quantity INTEGER NOT NULL DEFAULT 1 CHECK (stock_quantity >= 0),
   image_url TEXT,
   in_stock BOOLEAN NOT NULL DEFAULT TRUE,
   active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -70,9 +77,11 @@ CREATE TABLE addresses (
   latitude NUMERIC(10,7),
   longitude NUMERIC(10,7),
   instructions TEXT,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX addresses_user_idx ON addresses(user_id, created_at DESC);
+CREATE UNIQUE INDEX addresses_one_default_per_user_idx ON addresses(user_id) WHERE is_default = TRUE;
 
 CREATE TABLE driver_locations (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -94,6 +103,7 @@ CREATE TABLE orders (
   subtotal NUMERIC(12,2) NOT NULL CHECK (subtotal >= 0),
   delivery_fee NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0),
   total NUMERIC(12,2) NOT NULL CHECK (total >= 0),
+  exchange_rate NUMERIC(14,4) NOT NULL CHECK (exchange_rate > 0),
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -126,6 +136,33 @@ CREATE TABLE deliveries (
 CREATE INDEX deliveries_driver_status_idx ON deliveries(driver_id, status);
 CREATE INDEX deliveries_status_created_idx ON deliveries(status, created_at);
 
+CREATE TABLE order_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  message TEXT NOT NULL DEFAULT '' CHECK (length(message) <= 2000),
+  attachment_url TEXT,
+  payment_reference VARCHAR(120),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (message <> '' OR attachment_url IS NOT NULL OR payment_reference IS NOT NULL)
+);
+CREATE INDEX order_messages_order_created_idx ON order_messages(order_id, created_at);
+
+CREATE TABLE reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+  store_id UUID NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  driver_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment TEXT NOT NULL DEFAULT '' CHECK (length(comment) <= 2000),
+  driver_rating SMALLINT CHECK (driver_rating BETWEEN 1 AND 5),
+  driver_comment TEXT NOT NULL DEFAULT '' CHECK (length(driver_comment) <= 2000),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX reviews_store_created_idx ON reviews(store_id, created_at DESC);
+CREATE INDEX reviews_driver_created_idx ON reviews(driver_id, created_at DESC);
+
 CREATE TABLE app_settings (
   key VARCHAR(80) PRIMARY KEY,
   value JSONB NOT NULL,
@@ -134,4 +171,6 @@ CREATE TABLE app_settings (
 INSERT INTO app_settings(key, value) VALUES ('default_commission_rate', '10'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 INSERT INTO app_settings(key, value) VALUES ('delivery_zone_radius_km', '15'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+INSERT INTO app_settings(key, value) VALUES ('exchange_rate', 'null'::jsonb)
 ON CONFLICT (key) DO NOTHING;

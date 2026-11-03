@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Animated, Dimensions, Pressable, ScrollView, Text, View, type ScrollViewInstance } from "react-native";
 import { Button, styles } from "../components/UI";
+import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 
 const pages = [
   { eyebrow: "TODO TU BARRIO, EN UN SOLO LUGAR", title: "Lo bueno está más cerca", body: "Descubre restaurantes, tiendas y favoritos locales a pocos minutos de ti.", icon: "🏘️", color: "#FFF0E8", accent: "#F45B3C" },
@@ -8,7 +9,7 @@ const pages = [
   { eyebrow: "CADA PEDIDO, SIEMPRE A LA VISTA", title: "Tu pedido va contigo", body: "Sigue cada paso y conoce a las personas que hacen crecer tu comunidad.", icon: "🛵", color: "#FFF5D9", accent: "#D98B18" },
 ];
 
-export function OnboardingScreen({ onComplete }: { onComplete: () => void }) {
+export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComplete }: { exchangeRate: number | null; exchangeRateValueDate: string | null; onComplete: () => void }) {
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollViewInstance | null>(null);
   const width = Math.min(Dimensions.get("window").width - 40, 440);
@@ -27,6 +28,9 @@ export function OnboardingScreen({ onComplete }: { onComplete: () => void }) {
           <Pressable accessibilityRole="button" onPress={onComplete} hitSlop={12}>
             <Text style={{ color: "#777D89", fontSize: 14, fontWeight: "700" }}>Omitir</Text>
           </Pressable>
+        </View>
+        <View style={{ marginBottom: 14 }}>
+          <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
         </View>
         <ScrollView
           ref={scrollRef}

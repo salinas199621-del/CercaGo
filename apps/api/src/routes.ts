@@ -5,6 +5,7 @@ import { z } from "zod";
 import { pool } from "./db";
 import { allowRoles, authenticate, jwtSecret } from "./middleware/auth";
 import { asyncHandler } from "./middleware/asyncHandler";
+import { refreshExchangeRate } from "./exchangeRate";
 import type { AuthRequest } from "./types";
 
 const router = Router();
@@ -94,6 +95,21 @@ router.get("/categories", asyncHandler(async (_req, res) => {
   return res.json(rows);
 }));
 
+router.get("/exchange-rate", asyncHandler(async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT
+       (SELECT value #>> '{}' FROM app_settings WHERE key = 'exchange_rate') AS rate,
+       (SELECT value #>> '{}' FROM app_settings WHERE key = 'exchange_rate_source') AS source,
+       (SELECT value #>> '{}' FROM app_settings WHERE key = 'exchange_rate_value_date') AS "valueDate",
+       (SELECT updated_at FROM app_settings WHERE key = 'exchange_rate') AS "updatedAt"`,
+  );
+  const rate = Number(rows[0]?.rate);
+  if (!Number.isFinite(rate) || rate <= 0 || rows[0]?.source !== "BCV" || !rows[0]?.valueDate) {
+    return res.status(503).json({ error: "La tasa BCV aún no está disponible. Intenta de nuevo en unos segundos." });
+  }
+  return res.json({ ...rows[0], rate });
+}));
+
 router.get("/stores", asyncHandler(async (req, res) => {
   const query = z.object({
     categoryId: z.string().uuid().optional(),
@@ -113,7 +129,8 @@ router.get("/stores", asyncHandler(async (req, res) => {
   }
   const { rows } = await pool.query(
     `SELECT s.id, s.category_id, s.name, s.description, s.address, s.latitude, s.longitude, s.image_url,
-            s.rating, s.delivery_fee, s.estimated_delivery_minutes, s.created_at,
+            s.rating, s.delivery_fee, s.free_delivery, s.has_own_delivery,
+            s.estimated_delivery_minutes, s.created_at,
             c.name AS category_name,
             CASE WHEN $3::float8 IS NULL THEN NULL ELSE 6371 * acos(LEAST(1.0,
               sin(radians($3::float8)) * sin(radians(s.latitude::float8)) +
@@ -132,7 +149,7 @@ router.get("/stores", asyncHandler(async (req, res) => {
 
 router.get("/stores/:storeId/products", asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT p.id, p.store_id, p.name, p.description, p.price, p.image_url, p.in_stock
+    `SELECT p.id, p.store_id, p.name, p.description, p.price, p.image_url, p.in_stock, p.stock_quantity
      FROM products p JOIN stores s ON s.id = p.store_id
      WHERE p.store_id = $1 AND p.active = TRUE AND s.active = TRUE AND s.approved = TRUE
      ORDER BY p.name`,
@@ -163,12 +180,14 @@ router.post("/products", authenticate, allowRoles("store"), asyncHandler(async (
     description: z.string().max(2000).optional(),
     price: z.number().nonnegative(),
     imageUrl: z.string().url().optional(),
-    inStock: z.boolean().default(true),
+    stockQuantity: z.number().int().min(0).default(1),
+    inStock: z.boolean().optional(),
   }).parse(req.body);
   const { rows } = await pool.query(
-    `INSERT INTO products(store_id, name, description, price, image_url, in_stock)
-     VALUES($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [storeId, input.name, input.description ?? null, input.price, input.imageUrl ?? null, input.inStock],
+    `INSERT INTO products(store_id, name, description, price, image_url, stock_quantity, in_stock)
+     VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [storeId, input.name, input.description ?? null, input.price, input.imageUrl ?? null,
+      input.stockQuantity, input.inStock ?? input.stockQuantity > 0],
   );
   return res.status(201).json(rows[0]);
 }));
@@ -181,6 +200,7 @@ router.patch("/products/:productId", authenticate, allowRoles("store"), asyncHan
     price: z.number().nonnegative().optional(),
     imageUrl: z.string().url().nullable().optional(),
     inStock: z.boolean().optional(),
+    stockQuantity: z.number().int().min(0).optional(),
     active: z.boolean().optional(),
   }).refine((value) => Object.keys(value).length > 0).parse(req.body);
   const storeId = await getStoreIdForOwner(user.id);
@@ -190,6 +210,7 @@ router.patch("/products/:productId", authenticate, allowRoles("store"), asyncHan
     price: "price",
     imageUrl: "image_url",
     inStock: "in_stock",
+    stockQuantity: "stock_quantity",
     active: "active",
   };
   const fields = Object.entries(input)
@@ -222,8 +243,18 @@ router.patch("/stores/me", authenticate, allowRoles("store"), asyncHandler(async
     imageUrl: z.string().url().nullable().optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
+    hasOwnDelivery: z.boolean().optional(),
+    freeDelivery: z.boolean().optional(),
+    paymentBank: z.string().trim().max(100).nullable().optional(),
+    paymentDocument: z.string().trim().max(32).nullable().optional(),
+    paymentPhone: z.string().trim().max(32).nullable().optional(),
   }).parse(req.body);
-  const columns = { name: "name", description: "description", address: "address", imageUrl: "image_url", latitude: "latitude", longitude: "longitude" } as const;
+  const columns = {
+    name: "name", description: "description", address: "address", imageUrl: "image_url",
+    latitude: "latitude", longitude: "longitude", hasOwnDelivery: "has_own_delivery",
+    freeDelivery: "free_delivery", paymentBank: "payment_bank",
+    paymentDocument: "payment_document", paymentPhone: "payment_phone",
+  } as const;
   const fields = Object.entries(input).filter(([, value]) => value !== undefined);
   if (!fields.length) return res.status(400).json({ error: "No se recibieron cambios" });
   const setters = fields.map(([key], i) => `${columns[key as keyof typeof columns]} = $${i + 1}`);
@@ -244,21 +275,98 @@ router.post("/addresses", authenticate, allowRoles("customer"), asyncHandler(asy
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     instructions: z.string().max(1000).optional(),
+    isDefault: z.boolean().optional(),
   }).parse(req.body);
-  const { rows } = await pool.query(
-    `INSERT INTO addresses(user_id, label, address_line, latitude, longitude, instructions)
-     VALUES($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [user.id, input.label, input.addressLine, input.latitude ?? null, input.longitude ?? null, input.instructions ?? null],
-  );
-  return res.status(201).json(rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const currentDefault = await client.query("SELECT 1 FROM addresses WHERE user_id = $1 AND is_default = TRUE", [user.id]);
+    const isDefault = input.isDefault ?? !currentDefault.rowCount;
+    if (isDefault) await client.query("UPDATE addresses SET is_default = FALSE WHERE user_id = $1", [user.id]);
+    const { rows } = await client.query(
+      `INSERT INTO addresses(user_id, label, address_line, latitude, longitude, instructions, is_default)
+       VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [user.id, input.label, input.addressLine, input.latitude ?? null, input.longitude ?? null, input.instructions ?? null, isDefault],
+    );
+    await client.query("COMMIT");
+    return res.status(201).json(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
 }));
 
 router.get("/addresses", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    "SELECT id, label, address_line, latitude, longitude, instructions FROM addresses WHERE user_id = $1 ORDER BY created_at DESC",
+    "SELECT id, label, address_line, latitude, longitude, instructions, is_default FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC",
     [actor(req as AuthRequest).id],
   );
   return res.json(rows);
+}));
+
+router.patch("/addresses/:addressId", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  const input = z.object({
+    label: z.string().trim().min(1).max(60).optional(),
+    addressLine: z.string().trim().min(5).optional(),
+    instructions: z.string().max(1000).nullable().optional(),
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
+    isDefault: z.boolean().optional(),
+  }).refine((value) => Object.keys(value).length > 0).parse(req.body);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (input.isDefault) await client.query("UPDATE addresses SET is_default = FALSE WHERE user_id = $1", [user.id]);
+    const columns = {
+      label: "label", addressLine: "address_line", instructions: "instructions",
+      latitude: "latitude", longitude: "longitude", isDefault: "is_default",
+    } as const;
+    const fields = Object.entries(input).filter(([, value]) => value !== undefined);
+    const setters = fields.map(([key], index) => `${columns[key as keyof typeof columns]} = $${index + 1}`);
+    const { rows } = await client.query(
+      `UPDATE addresses SET ${setters.join(", ")} WHERE id = $${fields.length + 1} AND user_id = $${fields.length + 2} RETURNING *`,
+      [...fields.map(([, value]) => value), req.params.addressId, user.id],
+    );
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Dirección no encontrada" });
+    }
+    await client.query("COMMIT");
+    return res.json(rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
+}));
+
+router.delete("/addresses/:addressId", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "DELETE FROM addresses WHERE id = $1 AND user_id = $2 RETURNING is_default",
+      [req.params.addressId, user.id],
+    );
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Dirección no encontrada" });
+    }
+    if (rows[0].is_default) {
+      await client.query(
+        `UPDATE addresses SET is_default = TRUE WHERE id = (
+           SELECT id FROM addresses WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
+         )`,
+        [user.id],
+      );
+    }
+    await client.query("COMMIT");
+    return res.status(204).send();
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
 }));
 
 router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
@@ -276,7 +384,10 @@ router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async 
   let order: Record<string, unknown>;
   try {
     await client.query("BEGIN");
-    const store = await client.query("SELECT id FROM stores WHERE id = $1 AND active = TRUE AND approved = TRUE FOR SHARE", [input.storeId]);
+    const store = await client.query(
+      "SELECT id, delivery_fee, free_delivery, has_own_delivery FROM stores WHERE id = $1 AND active = TRUE AND approved = TRUE FOR SHARE",
+      [input.storeId],
+    );
     if (!store.rowCount) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Comercio no disponible" });
@@ -304,8 +415,8 @@ router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async 
 
     const productIds = input.items.map((item) => item.productId);
     const products = await client.query(
-      `SELECT id, name, price::text AS price FROM products
-       WHERE store_id = $1 AND active = TRUE AND in_stock = TRUE AND id = ANY($2::uuid[]) FOR SHARE`,
+      `SELECT id, name, price::text AS price, stock_quantity FROM products
+       WHERE store_id = $1 AND active = TRUE AND in_stock = TRUE AND id = ANY($2::uuid[]) FOR UPDATE`,
       [input.storeId, productIds],
     );
     if (products.rowCount !== new Set(productIds).size) {
@@ -314,19 +425,39 @@ router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async 
     }
     const byId = new Map(products.rows.map((product) => [product.id, product]));
     const items = input.items.map((item) => ({ ...item, product: byId.get(item.productId)! }));
+    if (items.some((item) => Number(item.product.stock_quantity) < item.quantity)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "La cantidad solicitada supera el stock disponible" });
+    }
     const subtotalCents = items.reduce((sum, item) => sum + Math.round(Number(item.product.price) * 100) * item.quantity, 0);
-    const deliveryFeeCents = 299;
+    const deliveryFeeCents = store.rows[0].free_delivery ? 0 : Math.round(Number(store.rows[0].delivery_fee) * 100);
+    const rateResult = await client.query(
+      `SELECT r.value #>> '{}' AS rate
+       FROM app_settings r
+       JOIN app_settings source ON source.key = 'exchange_rate_source' AND source.value #>> '{}' = 'BCV'
+       JOIN app_settings value_date ON value_date.key = 'exchange_rate_value_date'
+       WHERE r.key = 'exchange_rate'`,
+    );
+    const exchangeRate = Number(rateResult.rows[0]?.rate);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+      await client.query("ROLLBACK");
+      return res.status(503).json({ error: "La tasa oficial del BCV todavía no está disponible. Intenta más tarde." });
+    }
     const created = await client.query(
       `INSERT INTO orders(customer_id, store_id, address_id, delivery_address, delivery_latitude,
-                          delivery_longitude, subtotal, delivery_fee, total, notes)
-       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+                          delivery_longitude, subtotal, delivery_fee, total, exchange_rate, notes)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [user.id, input.storeId, input.addressId ?? null, deliveryAddress, deliveryLatitude, deliveryLongitude,
         (subtotalCents / 100).toFixed(2), (deliveryFeeCents / 100).toFixed(2),
-        ((subtotalCents + deliveryFeeCents) / 100).toFixed(2), input.notes ?? null],
+        ((subtotalCents + deliveryFeeCents) / 100).toFixed(2), exchangeRate, input.notes ?? null],
     );
     order = created.rows[0];
     for (const item of items) {
       const unitCents = Math.round(Number(item.product.price) * 100);
+      await client.query(
+        "UPDATE products SET stock_quantity = stock_quantity - $1, in_stock = (stock_quantity - $1) > 0, updated_at = NOW() WHERE id = $2",
+        [item.quantity, item.productId],
+      );
       await client.query(
         `INSERT INTO order_items(order_id, product_id, product_name, unit_price, quantity, line_total)
          VALUES($1, $2, $3, $4, $5, $6)`,
@@ -363,31 +494,146 @@ router.get("/orders", authenticate, asyncHandler(async (req, res) => {
     where = "TRUE";
     parameters = [];
   }
+  const paymentFields = ["customer", "store"].includes(user.role)
+    ? "s.payment_bank, s.payment_document, s.payment_phone,"
+    : "NULL::varchar AS payment_bank, NULL::varchar AS payment_document, NULL::varchar AS payment_phone,";
   const { rows } = await pool.query(
     `SELECT o.*, s.name AS store_name, s.address AS store_address, s.latitude AS store_latitude,
-            s.longitude AS store_longitude, d.id AS delivery_id, d.driver_id, d.status AS delivery_status,
+            s.longitude AS store_longitude, s.has_own_delivery, s.free_delivery,
+            ${paymentFields}
+            d.id AS delivery_id, d.driver_id, d.status AS delivery_status,
+            (r.id IS NOT NULL) AS has_review,
             COALESCE((SELECT json_agg(json_build_object('id', oi.id, 'productName', oi.product_name,
                     'unitPrice', oi.unit_price, 'quantity', oi.quantity, 'lineTotal', oi.line_total))
                       FROM order_items oi WHERE oi.order_id = o.id), '[]'::json) AS items
      FROM orders o JOIN stores s ON s.id = o.store_id
      LEFT JOIN deliveries d ON d.order_id = o.id
+     LEFT JOIN reviews r ON r.order_id = o.id
      WHERE ${where} ORDER BY o.created_at DESC LIMIT 100`,
     parameters,
   );
   return res.json(rows);
 }));
 
+async function canAccessOrder(orderId: string, userId: string) {
+  const { rowCount } = await pool.query(
+    `SELECT 1 FROM orders o
+     JOIN stores s ON s.id = o.store_id
+     WHERE o.id = $1 AND (o.customer_id = $2 OR s.owner_id = $2)`,
+    [orderId, userId],
+  );
+  return Boolean(rowCount);
+}
+
+router.get("/orders/:orderId/messages", authenticate, asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  if (!await canAccessOrder(req.params.orderId, user.id)) return res.status(404).json({ error: "Pedido no encontrado" });
+  const { rows } = await pool.query(
+    `SELECT m.id, m.order_id, m.sender_id, m.message, m.attachment_url, m.payment_reference,
+            m.created_at, u.name AS sender_name, u.role AS sender_role
+     FROM order_messages m JOIN users u ON u.id = m.sender_id
+     WHERE m.order_id = $1 ORDER BY m.created_at ASC LIMIT 200`,
+    [req.params.orderId],
+  );
+  return res.json(rows);
+}));
+
+router.post("/orders/:orderId/messages", authenticate, asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  const input = z.object({
+    message: z.string().trim().max(2000).optional(),
+    attachmentUrl: z.string().url().refine((value) => /^https?:\/\//i.test(value), "El enlace debe usar HTTP o HTTPS").optional(),
+    paymentReference: z.string().trim().max(120).optional(),
+  }).refine((value) => Boolean(value.message || value.attachmentUrl || value.paymentReference)).parse(req.body);
+  if (!await canAccessOrder(req.params.orderId, user.id)) return res.status(404).json({ error: "Pedido no encontrado" });
+  if (user.role === "customer" && (input.paymentReference || input.attachmentUrl)) {
+    const status = await pool.query("SELECT status FROM orders WHERE id = $1 AND customer_id = $2", [req.params.orderId, user.id]);
+    if (!["accepted", "preparing", "ready", "picked_up", "delivered"].includes(status.rows[0]?.status)) {
+      return res.status(409).json({ error: "Espera la confirmación del comercio antes de transferir y enviar el comprobante" });
+    }
+  }
+  if (user.role === "store" && input.message === "Pago recibido y verificado") {
+    const proof = await pool.query(
+      `SELECT 1 FROM order_messages
+       WHERE order_id = $1 AND sender_id = (SELECT customer_id FROM orders WHERE id = $1)
+         AND (payment_reference IS NOT NULL OR attachment_url IS NOT NULL)
+       LIMIT 1`,
+      [req.params.orderId],
+    );
+    if (!proof.rowCount) return res.status(409).json({ error: "El cliente debe enviar el comprobante o la referencia antes de verificar el pago" });
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO order_messages(order_id, sender_id, message, attachment_url, payment_reference)
+     VALUES($1, $2, $3, $4, $5)
+     RETURNING id, order_id, sender_id, message, attachment_url, payment_reference, created_at`,
+    [req.params.orderId, user.id, input.message ?? "", input.attachmentUrl ?? null, input.paymentReference ?? null],
+  );
+  const message = { ...rows[0], sender_name: user.name, sender_role: user.role };
+  const participants = await pool.query(
+    `SELECT o.customer_id, s.owner_id
+     FROM orders o JOIN stores s ON s.id = o.store_id
+     WHERE o.id = $1`,
+    [req.params.orderId],
+  );
+  const io = req.app.get("io");
+  if (participants.rows[0]) {
+    io?.to(`user:${participants.rows[0].customer_id}`)
+      .to(`user:${participants.rows[0].owner_id}`)
+      .emit("order:message", message);
+  }
+  return res.status(201).json(message);
+}));
+
+router.post("/orders/:orderId/review", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  const input = z.object({
+    rating: z.number().int().min(1).max(5),
+    comment: z.string().trim().max(2000).default(""),
+    driverRating: z.number().int().min(1).max(5).optional(),
+    driverComment: z.string().trim().max(2000).default(""),
+  }).parse(req.body);
+  if (input.driverComment && !input.driverRating) {
+    return res.status(400).json({ error: "Califica al repartidor para enviar un comentario sobre su servicio" });
+  }
+  const order = await pool.query(
+    `SELECT o.store_id, o.status, d.driver_id
+     FROM orders o LEFT JOIN deliveries d ON d.order_id = o.id
+     WHERE o.id = $1 AND o.customer_id = $2`,
+    [req.params.orderId, user.id],
+  );
+  if (!order.rows[0]) return res.status(404).json({ error: "Pedido no encontrado" });
+  if (order.rows[0].status !== "delivered") return res.status(409).json({ error: "Solo puedes reseñar pedidos entregados" });
+  if (input.driverRating && !order.rows[0].driver_id) {
+    return res.status(400).json({ error: "Este pedido no tiene un repartidor asignado" });
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO reviews(order_id, store_id, user_id, driver_id, rating, comment, driver_rating, driver_comment)
+     VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT(order_id) DO NOTHING RETURNING *`,
+    [req.params.orderId, order.rows[0].store_id, user.id, order.rows[0].driver_id, input.rating, input.comment,
+      input.driverRating ?? null, input.driverComment],
+  );
+  if (!rows[0]) return res.status(409).json({ error: "Este pedido ya fue reseñado" });
+  await pool.query(
+    "UPDATE stores SET rating = (SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE store_id = $1) WHERE id = $1",
+    [order.rows[0].store_id],
+  );
+  return res.status(201).json(rows[0]);
+}));
+
 router.patch("/orders/:orderId/status", authenticate, asyncHandler(async (req, res) => {
   const user = actor(req as AuthRequest);
-  const { status } = z.object({ status: z.enum(["accepted", "preparing", "ready", "cancelled"]) }).parse(req.body);
+  const { status } = z.object({ status: z.enum(["accepted", "preparing", "ready", "picked_up", "delivered", "cancelled"]) }).parse(req.body);
   if (!["store", "admin"].includes(user.role)) return res.status(403).json({ error: "Permisos insuficientes" });
   const storeId = user.role === "store" ? await getStoreIdForOwner(user.id) : null;
   const client = await pool.connect();
   let updated;
+  let isOwnDelivery = false;
   try {
     await client.query("BEGIN");
     const current = await client.query(
-      `SELECT o.*, d.id AS delivery_id, s.latitude AS store_latitude, s.longitude AS store_longitude
+      `SELECT o.*, d.id AS delivery_id, s.latitude AS store_latitude, s.longitude AS store_longitude,
+              s.has_own_delivery
        FROM orders o JOIN deliveries d ON d.order_id = o.id JOIN stores s ON s.id = o.store_id
        WHERE o.id = $1 AND ($2::uuid IS NULL OR o.store_id = $2) FOR UPDATE OF o, d`,
       [req.params.orderId, storeId],
@@ -396,16 +642,33 @@ router.patch("/orders/:orderId/status", authenticate, asyncHandler(async (req, r
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
+    isOwnDelivery = Boolean(current.rows[0].has_own_delivery);
     const allowed: Record<string, string[]> = {
       placed: ["accepted", "cancelled"],
       accepted: ["preparing", "cancelled"],
       preparing: ["ready", "cancelled"],
+      ready: current.rows[0].has_own_delivery ? ["picked_up", "cancelled"] : [],
+      picked_up: current.rows[0].has_own_delivery ? ["delivered"] : [],
     };
     if (!allowed[current.rows[0].status]?.includes(status)) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: `No se puede cambiar de ${current.rows[0].status} a ${status}` });
     }
-    if (status === "ready" && (current.rows[0].store_latitude == null || current.rows[0].store_longitude == null)) {
+    if (status === "preparing") {
+      const proof = await client.query(
+        `SELECT 1 FROM order_messages
+         WHERE order_id = $1 AND sender_id = (SELECT customer_id FROM orders WHERE id = $1)
+           AND (payment_reference IS NOT NULL OR attachment_url IS NOT NULL)
+         LIMIT 1`,
+        [req.params.orderId],
+      );
+      if (!proof.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "El cliente debe enviar la captura del comprobante o el número de referencia antes de preparar el pedido" });
+      }
+    }
+    if (status === "ready" && !current.rows[0].has_own_delivery &&
+      (current.rows[0].store_latitude == null || current.rows[0].store_longitude == null)) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "Configura la ubicación del comercio antes de marcar pedidos como listos" });
     }
@@ -417,6 +680,15 @@ router.patch("/orders/:orderId/status", authenticate, asyncHandler(async (req, r
     if (status === "ready") {
       await client.query("UPDATE deliveries SET status = 'pending' WHERE order_id = $1", [req.params.orderId]);
     }
+    if (status === "picked_up" || status === "delivered") {
+      await client.query(
+        `UPDATE deliveries SET status = $1,
+         picked_up_at = CASE WHEN $1 = 'picked_up' THEN NOW() ELSE picked_up_at END,
+         delivered_at = CASE WHEN $1 = 'delivered' THEN NOW() ELSE delivered_at END
+         WHERE order_id = $2`,
+        [status, req.params.orderId],
+      );
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -426,11 +698,11 @@ router.patch("/orders/:orderId/status", authenticate, asyncHandler(async (req, r
   }
   const io = req.app.get("io");
   io?.to(`customer:${updated.customer_id}`).emit("order:status", updated);
-  if (status === "ready") {
+  if (status === "ready" && !isOwnDelivery) {
     const drivers = await pool.query(
       `SELECT dl.user_id FROM driver_locations dl
        JOIN stores s ON s.id = $1
-       WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+       WHERE s.has_own_delivery = FALSE AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
          AND 6371 * acos(LEAST(1.0,
            sin(radians(dl.latitude::float8)) * sin(radians(s.latitude::float8)) +
            cos(radians(dl.latitude::float8)) * cos(radians(s.latitude::float8)) *
@@ -465,7 +737,7 @@ router.get("/deliveries/available", authenticate, allowRoles("driver"), asyncHan
   if (!location.rowCount) return res.status(409).json({ error: "Activa la ubicación para consultar pedidos en tu zona" });
   const { rows } = await pool.query(
     `SELECT o.id, o.store_id, o.delivery_address, o.delivery_latitude, o.delivery_longitude,
-            o.total, o.created_at, s.name AS store_name, s.address AS store_address, s.latitude AS store_latitude,
+            o.total, o.exchange_rate, o.created_at, s.name AS store_name, s.address AS store_address, s.latitude AS store_latitude,
             s.longitude AS store_longitude, d.id AS delivery_id,
             6371 * acos(LEAST(1.0,
               sin(radians(dl.latitude::float8)) * sin(radians(s.latitude::float8)) +
@@ -476,6 +748,7 @@ router.get("/deliveries/available", authenticate, allowRoles("driver"), asyncHan
      JOIN deliveries d ON d.order_id = o.id
      JOIN driver_locations dl ON dl.user_id = $1
      WHERE o.status = 'ready' AND d.status = 'pending' AND d.driver_id IS NULL
+       AND s.has_own_delivery = FALSE
        AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
        AND 6371 * acos(LEAST(1.0,
          sin(radians(dl.latitude::float8)) * sin(radians(s.latitude::float8)) +
@@ -629,6 +902,11 @@ router.patch("/admin/settings/commission", authenticate, allowRoles("admin"), as
     [JSON.stringify(rate)],
   );
   return res.json({ rate });
+}));
+
+router.post("/admin/settings/exchange-rate/refresh", authenticate, allowRoles("admin"), asyncHandler(async (req, res) => {
+  const currentRate = await refreshExchangeRate((rate) => req.app.get("io")?.emit("exchange-rate:updated", rate));
+  return res.json(currentRate);
 }));
 
 export default router;

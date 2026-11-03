@@ -10,6 +10,10 @@
     ],
     "splash": { "backgroundColor": "#f8fafc" },
     "ios": { "supportsTablet": true },
-    "android": { "adaptiveIcon": { "backgroundColor": "#ffffff" } }
+    "android": {
+      "package": "com.cercago.marketplace",
+      "versionCode": 1,
+      "adaptiveIcon": { "backgroundColor": "#ffffff" }
+    }
   }
 }

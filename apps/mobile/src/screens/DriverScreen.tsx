@@ -4,6 +4,8 @@ import * as Location from "expo-location";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Loading, styles } from "../components/UI";
+import { formatDualPrice } from "../currency";
+import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 import type { Order } from "../types";
 import { socket } from "./socketRef";
 
@@ -17,7 +19,7 @@ interface AvailableDelivery extends Order {
 }
 
 export function DriverScreen() {
-  const { session } = useAuth();
+  const { session, exchangeRate, exchangeRateValueDate } = useAuth();
   const token = session!.token;
   const [available, setAvailable] = useState<AvailableDelivery[]>([]);
   const [mine, setMine] = useState<Order[]>([]);
@@ -105,6 +107,7 @@ export function DriverScreen() {
           ))}
         </View>
       </View>
+      <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
       <Text style={styles.subtitle}>Las ofertas se actualizan con tu ubicación.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Text style={styles.section}>Mis entregas</Text>
@@ -124,7 +127,7 @@ export function DriverScreen() {
       <Text style={styles.section}>Disponibles</Text>
       {available.map((delivery) => (
         <Card key={delivery.delivery_id}>
-          <Text style={{ fontWeight: "700" }}>{delivery.store_name} · ${Number(delivery.total).toFixed(2)}</Text>
+          <Text style={{ fontWeight: "700" }}>{delivery.store_name} · {formatDualPrice(delivery.total, delivery.exchange_rate ?? exchangeRate)}</Text>
           <Text style={styles.subtitle}>Retiro: {delivery.store_address}</Text>
           <Text style={styles.subtitle}>Entrega: {delivery.delivery_address}</Text>
           <Button title="Ver ruta al comercio" secondary onPress={() => openMap(delivery.store_address)} />
