@@ -11,6 +11,7 @@
     "apps/admin"
   ],
   "scripts": {
+    "start": "npm run start -w @cercago/api",
     "dev:api": "npm run dev -w @cercago/api",
     "dev:mobile": "npm run start -w @cercago/mobile",
     "dev:admin": "npm run dev -w @cercago/admin",
