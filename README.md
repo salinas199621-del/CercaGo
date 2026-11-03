@@ -24,6 +24,8 @@ En la pantalla de acceso puedes entrar a la demo como cliente, comercio o repart
 
 La página principal se sirve desde Render en [cercago.onrender.com](https://cercago.onrender.com). El mismo servicio sirve la app web en `/`, el API en `/api` y Socket.IO en el mismo dominio. Al desplegar cambios, Render compila la API y exporta la web desde Expo; la URL para descargar el APK es [cercago.onrender.com/download/](https://cercago.onrender.com/download/).
 
+La cotización oficial en bolívares se consulta primero desde el BCV. Si su certificado HTTPS no permite una conexión segura, CercaGo usa como respaldo el endpoint oficial de DolarAPI, valida que corresponda a USD y a la tasa oficial, y guarda su fecha de actualización. El servidor comprueba la tasa al iniciar y cada hora; los pedidos guardan la tasa vigente al momento de crearse.
+
 GitHub Pages continúa disponible como demo alternativa y no instala una app nativa:
 
 GitHub Pages publica una copia web de la app Expo. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, configura el API y PostgreSQL como se indica abajo.

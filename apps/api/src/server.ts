@@ -116,7 +116,7 @@ server.listen(port, () => console.log(`CercaGo API escuchando en el puerto ${por
 const exchangeRateRefreshTimer = setInterval(() => {
   void refreshExchangeRate((rate) => io.emit("exchange-rate:updated", rate))
     .catch((error) => console.error("No se pudo actualizar la tasa oficial del BCV", error));
-}, 6 * 60 * 60 * 1000);
+}, 60 * 60 * 1000);
 exchangeRateRefreshTimer.unref();
 void refreshExchangeRate((rate) => io.emit("exchange-rate:updated", rate))
   .catch((error) => console.error("No se pudo cargar la tasa oficial inicial del BCV", error));

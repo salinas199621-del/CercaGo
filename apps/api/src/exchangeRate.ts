@@ -29,12 +29,38 @@ export function parseBcvRate(html: string): Omit<ExchangeRateRecord, "updatedAt"
 }
 
 export async function fetchBcvRate(): Promise<Omit<ExchangeRateRecord, "updatedAt" | "source">> {
-  const response = await fetch("https://bcv.org.ve/", {
-    headers: { "User-Agent": "CercaGo/1.0 (BCV exchange rate sync)" },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`El BCV respondió HTTP ${response.status}`);
-  return parseBcvRate(await response.text());
+  try {
+    const response = await fetch("https://www.bcv.org.ve/", {
+      headers: { "User-Agent": "CercaGo/1.0 (BCV exchange rate sync)" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`El BCV respondió HTTP ${response.status}`);
+    return parseBcvRate(await response.text());
+  } catch (bcvError) {
+    console.warn("No se pudo consultar el BCV directamente; se intentará obtener su tasa oficial desde el proveedor alternativo.", bcvError);
+    try {
+      const response = await fetch("https://ve.dolarapi.com/v1/dolares/oficial", {
+        headers: { "User-Agent": "CercaGo/1.0 (BCV exchange rate sync)", "Cache-Control": "no-cache" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new Error(`El proveedor de tasa oficial respondió HTTP ${response.status}`);
+      const data: unknown = await response.json();
+      if (!data || typeof data !== "object") throw new Error("Respuesta inválida del proveedor de tasa oficial");
+
+      const official = data as { moneda?: unknown; fuente?: unknown; promedio?: unknown; fechaActualizacion?: unknown };
+      const rate = typeof official.promedio === "number" ? official.promedio : Number(official.promedio);
+      const updatedAt = typeof official.fechaActualizacion === "string" ? new Date(official.fechaActualizacion) : null;
+      if (official.moneda !== "USD" || official.fuente !== "oficial" ||
+          !Number.isFinite(rate) || rate <= 0 ||
+          !updatedAt || !Number.isFinite(updatedAt.getTime())) {
+        throw new Error("La respuesta no contiene una tasa oficial USD válida");
+      }
+
+      return { rate, valueDate: updatedAt.toISOString().slice(0, 10) };
+    } catch (fallbackError) {
+      throw new AggregateError([bcvError, fallbackError], "No se pudo obtener la tasa oficial del BCV ni desde su proveedor alternativo");
+    }
+  }
 }
 
 export async function refreshExchangeRate(onUpdated?: (rate: ExchangeRateRecord) => void): Promise<ExchangeRateRecord> {
