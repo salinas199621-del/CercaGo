@@ -21,7 +21,7 @@ No hay cuentas, pedidos ni comercios de prueba en el acceso. Crea usuarios con e
 
 ## Publicar y probar la web
 
-La única web pública de CercaGo está en [Render](https://cercago.onrender.com/): es informativa, explica el servicio y dirige a descargar la aplicación Android; no reproduce las pantallas de la app. El mismo servicio sirve el API en `/api`, el panel administrativo en `/admin/` y la descarga en `/download/`. GitHub Pages solo conserva una redirección al sitio de Render para que los enlaces antiguos sigan funcionando; no publica otra copia.
+La única web pública de CercaGo está en [Render](https://cercago.onrender.com/): es informativa, explica el servicio y dirige a descargar la aplicación Android; no reproduce las pantallas de la app. El mismo servicio sirve el API en `/api` y el panel administrativo en `/admin/`. Los botones de descarga de la web descargan el APK directamente; la ruta antigua `/download/` redirige al mismo archivo por compatibilidad, sin mostrar una página adicional. GitHub Pages solo conserva una redirección al sitio de Render para que los enlaces antiguos sigan funcionando; no publica otra copia.
 
 La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y desde el BCV/DolarAPI en el servidor. La app valida que DolarAPI responda con USD y fuente oficial, conserva la última tasa válida en el dispositivo como respaldo y muestra su fecha. El servidor comprueba la tasa al iniciar y cada hora; los pedidos guardan la tasa vigente al momento de crearse.
 
@@ -38,7 +38,7 @@ GitHub Pages mantiene una redirección para compatibilidad con el enlace antiguo
 1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
 2. El enlace oficial es [cercago.onrender.com](https://cercago.onrender.com/). El enlace antiguo de [GitHub Pages](https://salinas199621-del.github.io/CercaGo/) redirige allí.
 3. Después de cada `git push` a `main`, GitHub volverá a publicar el sitio. No subas archivos `.env` ni secretos al repositorio.
-4. El panel administrativo está en `https://cercago.onrender.com/admin/`.
+4. El panel administrativo está en `https://cercago.onrender.com/admin/`. Inicia sesión con el correo y la contraseña de la cuenta que tenga el rol `admin`; no existe una cuenta demo ni un registro público de administradores.
 
 Para abrir la web en el teléfono, comparte el enlace público. Para dejarla como acceso directo, usa **Añadir a pantalla de inicio** en el navegador; sigue siendo una aplicación web, no una descarga de Play Store.
 
@@ -66,7 +66,7 @@ Para reactivarlo después, configura las credenciales de OAuth en Google Cloud, 
 
 El APK es una aplicación Android instalada en el teléfono y no depende de GitHub Pages. Este proyecto no integra actualizaciones OTA: los cambios de código no se instalan solos. Para cada versión se genera otro APK; cada usuario debe descargarlo y abrirlo para instalar la actualización. El primer APK nativo usa la clave de desarrollo de Android; para instalarlo sobre la versión anterior firmada por otro proveedor hay que desinstalar primero la app anterior.
 
-La página pública ofrece la descarga en `https://cercago.onrender.com/download/` y en la pantalla de acceso. El APK se distribuye desde el asset `CercaGo.apk` del GitHub Release más reciente, en `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. Para publicar otra versión, actualiza la versión y el `versionCode` en `apps/mobile/android/app/build.gradle`, y publica una etiqueta `apk-vX.Y.Z`; GitHub Actions compilará la app Android nativa y adjuntará el APK.
+Los botones de la página pública descargan el APK directamente desde el asset `CercaGo.apk` del GitHub Release más reciente: `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. La ruta anterior `/download/` redirige a ese archivo. Para publicar otra versión, actualiza la versión y el `versionCode` en `apps/mobile/android/app/build.gradle`, y publica una etiqueta `apk-vX.Y.Z`; GitHub Actions compilará la app Android nativa y adjuntará el APK.
 
 1. Publica el API y PostgreSQL en un servidor accesible por HTTPS. Configura el API con `DATABASE_URL`, `JWT_SECRET` y `CLIENT_ORIGIN` (el origen del panel web publicado). No uses `localhost` en el APK: en el móvil, localhost apunta al propio móvil.
 2. Ejecuta el esquema o las migraciones indicadas al inicio de este README en PostgreSQL. El API consulta la tasa oficial BCV al arrancar; no pongas credenciales de la base de datos en GitHub ni en la app.

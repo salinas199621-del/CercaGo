@@ -79,6 +79,9 @@ app.get("/health", async (_req, res) => {
   }
 });
 app.use("/api", router);
+app.get("/download", (_req, res) => {
+  res.redirect(302, "https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk");
+});
 app.use(express.static(resolve(__dirname, "../public")));
 app.use(notFound);
 app.use(errorHandler);

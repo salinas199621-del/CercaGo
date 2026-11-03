@@ -78,7 +78,7 @@ export default function App() {
       const response = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier: email, password }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "No se pudo iniciar sesión");

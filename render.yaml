@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     autoDeployTrigger: commit
-    buildCommand: npm ci --include=dev && npm run build:api && npm run build:website && VITE_BASE_PATH=/admin/ VITE_API_URL=https://cercago.onrender.com/api npm run build -w @cercago/admin && mkdir -p apps/api/public/download apps/api/public/admin && cp -R apps/website/dist/. apps/api/public/ && cp -R apps/admin/dist/. apps/api/public/admin/ && cp apps/mobile/download.html apps/api/public/download/index.html && node -e "require('node:fs').accessSync('apps/api/dist/server.js'); require('node:fs').accessSync('apps/api/public/index.html'); require('node:fs').accessSync('apps/api/public/admin/index.html')"
+    buildCommand: npm ci --include=dev && npm run build:api && npm run build:website && VITE_BASE_PATH=/admin/ VITE_API_URL=https://cercago.onrender.com/api npm run build -w @cercago/admin && mkdir -p apps/api/public/admin && cp -R apps/website/dist/. apps/api/public/ && cp -R apps/admin/dist/. apps/api/public/admin/ && node -e "require('node:fs').accessSync('apps/api/dist/server.js'); require('node:fs').accessSync('apps/api/public/index.html'); require('node:fs').accessSync('apps/api/public/admin/index.html')"
     startCommand: node --use-system-ca apps/api/dist/server.js
     healthCheckPath: /health
     envVars:
