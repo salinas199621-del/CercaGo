@@ -21,7 +21,7 @@ No hay cuentas, pedidos ni comercios de prueba en el acceso. Crea usuarios con e
 
 ## Publicar y probar la web
 
-La página pública de CercaGo es informativa: presenta el servicio, explica cómo funciona y dirige a descargar la aplicación Android. No reproduce las pantallas de la app. Render y GitHub Pages publican la misma web; el API está en `/api`, el panel administrativo en `/admin/` y la página de descarga en `/download/`. El enlace principal de descarga apunta al APK oficial de la versión más reciente.
+La única web pública de CercaGo está en [Render](https://cercago.onrender.com/): es informativa, explica el servicio y dirige a descargar la aplicación Android; no reproduce las pantallas de la app. El mismo servicio sirve el API en `/api`, el panel administrativo en `/admin/` y la descarga en `/download/`. GitHub Pages solo conserva una redirección al sitio de Render para que los enlaces antiguos sigan funcionando; no publica otra copia.
 
 La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y desde el BCV/DolarAPI en el servidor. La app valida que DolarAPI responda con USD y fuente oficial, conserva la última tasa válida en el dispositivo como respaldo y muestra su fecha. El servidor comprueba la tasa al iniciar y cada hora; los pedidos guardan la tasa vigente al momento de crearse.
 
@@ -33,12 +33,12 @@ Los anuncios del Home se definen en `apps/mobile/public/promotions.json`. Cada e
 
 Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
 
-GitHub Pages publica la web informativa, pero no instala una app nativa:
+GitHub Pages mantiene una redirección para compatibilidad con el enlace antiguo; Render es el único sitio público y no instala una app nativa:
 
 1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
-2. Abre **Actions** y espera a que termine el workflow de despliegue web. El sitio público de este repositorio es [CercaGo](https://salinas199621-del.github.io/CercaGo/).
+2. El enlace oficial es [cercago.onrender.com](https://cercago.onrender.com/). El enlace antiguo de [GitHub Pages](https://salinas199621-del.github.io/CercaGo/) redirige allí.
 3. Después de cada `git push` a `main`, GitHub volverá a publicar el sitio. No subas archivos `.env` ni secretos al repositorio.
-4. El mismo despliegue publica el panel admin en `https://salinas199621-del.github.io/CercaGo/admin/`.
+4. El panel administrativo está en `https://cercago.onrender.com/admin/`.
 
 Para abrir la web en el teléfono, comparte el enlace público. Para dejarla como acceso directo, usa **Añadir a pantalla de inicio** en el navegador; sigue siendo una aplicación web, no una descarga de Play Store.
 
@@ -47,12 +47,11 @@ Para abrir la web en el teléfono, comparte el enlace público. Para dejarla com
 El repositorio incluye `render.yaml` para desplegar la API Node en Render. Para PostgreSQL se puede usar Neon. Los planes gratuitos son útiles para pruebas, pero pueden dormir o tener límites; revisa los precios y límites actuales antes de operar el marketplace.
 
 1. Crea un proyecto PostgreSQL en Neon y copia la cadena de conexión (usa la cadena recomendada por Neon con SSL). No la compartas ni la guardes en Git.
-2. En Render, crea un **Blueprint** conectado a este repositorio y acepta `render.yaml`. Configura `DATABASE_URL` con la cadena de Neon cuando Render la solicite. `JWT_SECRET` se genera automáticamente y `CLIENT_ORIGIN` permite el sitio web de GitHub Pages.
+2. En Render, crea un **Blueprint** conectado a este repositorio y acepta `render.yaml`. Configura `DATABASE_URL` con la cadena de Neon cuando Render la solicite. `JWT_SECRET` se genera automáticamente y el sitio canónico se sirve desde Render.
 3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Para una base ya existente, aplica en orden las migraciones 001 a 006.
 4. En Render, espera a que el servicio `cercago-api` esté activo. Comprueba `https://TU-API.onrender.com/health`; debe responder `{"status":"ok"}`.
 5. Crea el administrador inicial ejecutando `npm run create-admin -w @cercago/api` desde tu equipo, con `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y una contraseña de 16–72 bytes configurados temporalmente en la terminal. No añadas esos valores al repositorio.
-6. En GitHub abre **Settings → Secrets and variables → Actions → Variables** y crea `CERCAGO_API_URL` con la URL del API más `/api`, por ejemplo `https://cercago-api.onrender.com/api`.
-7. El workflow de GitHub Actions publica la web informativa y el panel de administración. La aplicación Android usa el API de Render por HTTPS.
+6. El sitio, el panel y el API se despliegan desde el mismo servicio de Render; la aplicación Android usa ese API por HTTPS.
 
 Para restablecer contraseña, configura SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) y/o Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`) como variables secretas del servicio API. Sin un proveedor configurado, el API no simula el envío del código.
 
@@ -67,7 +66,7 @@ Para reactivarlo después, configura las credenciales de OAuth en Google Cloud, 
 
 El APK es una aplicación Android instalada en el teléfono y no depende de GitHub Pages. Este proyecto no integra actualizaciones OTA: los cambios de código no se instalan solos. Para cada versión se genera otro APK; cada usuario debe descargarlo y abrirlo para instalar la actualización. El primer APK nativo usa la clave de desarrollo de Android; para instalarlo sobre la versión anterior firmada por otro proveedor hay que desinstalar primero la app anterior.
 
-La página pública ofrece la descarga en `https://salinas199621-del.github.io/CercaGo/download/` y en la pantalla de acceso. El APK se distribuye desde el asset `CercaGo.apk` del GitHub Release más reciente, en `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. Para publicar otra versión, actualiza la versión y el `versionCode` en `apps/mobile/android/app/build.gradle`, y publica una etiqueta `apk-vX.Y.Z`; GitHub Actions compilará la app Android nativa y adjuntará el APK.
+La página pública ofrece la descarga en `https://cercago.onrender.com/download/` y en la pantalla de acceso. El APK se distribuye desde el asset `CercaGo.apk` del GitHub Release más reciente, en `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. Para publicar otra versión, actualiza la versión y el `versionCode` en `apps/mobile/android/app/build.gradle`, y publica una etiqueta `apk-vX.Y.Z`; GitHub Actions compilará la app Android nativa y adjuntará el APK.
 
 1. Publica el API y PostgreSQL en un servidor accesible por HTTPS. Configura el API con `DATABASE_URL`, `JWT_SECRET` y `CLIENT_ORIGIN` (el origen del panel web publicado). No uses `localhost` en el APK: en el móvil, localhost apunta al propio móvil.
 2. Ejecuta el esquema o las migraciones indicadas al inicio de este README en PostgreSQL. El API consulta la tasa oficial BCV al arrancar; no pongas credenciales de la base de datos en GitHub ni en la app.

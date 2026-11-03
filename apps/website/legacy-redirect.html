@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="1;url=https://cercago.onrender.com/">
+    <title>CercaGo se trasladó</title>
+  </head>
+  <body>
+    <p>El sitio oficial de CercaGo ahora está en <a href="https://cercago.onrender.com/">cercago.onrender.com</a>.</p>
+    <script>
+      const path = location.pathname.replace(/^\/CercaGo(?=\/|$)/, "") || "/";
+      location.replace(new URL(path + location.search + location.hash, "https://cercago.onrender.com").href);
+    </script>
+  </body>
+</html>

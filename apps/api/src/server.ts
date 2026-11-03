@@ -20,6 +20,7 @@ const app = express();
 const server = http.createServer(app);
 app.set("trust proxy", 1);
 const allowedOrigins = [...new Set([
+  "https://cercago.onrender.com",
   "https://salinas199621-del.github.io",
   ...(process.env.CLIENT_ORIGIN || "http://localhost:5173").split(",").map((origin) => origin.trim()),
 ])];

@@ -1,16 +1,11 @@
-name: Deploy CercaGo web
+name: Redirect legacy GitHub Pages to CercaGo on Render
 
 on:
   push:
     branches: [main]
     paths:
-      - "apps/mobile/**"
-      - "apps/admin/**"
-      - "apps/website/**"
+      - "apps/website/legacy-redirect.html"
       - ".github/workflows/deploy-cercago-web.yml"
-      - "package-lock.json"
-      - "package.json"
-      - "render.yaml"
   workflow_dispatch:
 
 permissions:
@@ -32,53 +27,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24.3"
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Set site base paths
-        shell: bash
+      - name: Publish redirects to the canonical Render site
         run: |
-          if [[ "$GITHUB_REPOSITORY" == "$GITHUB_REPOSITORY_OWNER.github.io" ]]; then
-            echo "VITE_BASE_PATH=/" >> "$GITHUB_ENV"
-            echo "VITE_ADMIN_BASE_PATH=/admin/" >> "$GITHUB_ENV"
-          else
-            echo "VITE_BASE_PATH=/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_ENV"
-            echo "VITE_ADMIN_BASE_PATH=/${GITHUB_REPOSITORY#*/}/admin/" >> "$GITHUB_ENV"
-          fi
-
-      - name: Build CercaGo information website
-        working-directory: apps/website
-        env:
-          VITE_API_URL: ${{ vars.CERCAGO_API_URL || 'https://cercago.onrender.com/api' }}
-        run: npm run build
-
-      - name: Build administration panel
-        env:
-          VITE_API_URL: ${{ vars.CERCAGO_API_URL || 'https://cercago.onrender.com/api' }}
-          VITE_BASE_PATH: ${{ env.VITE_ADMIN_BASE_PATH }}
-        run: |
-          npm run build -w @cercago/admin
-          mkdir -p apps/website/dist/admin
-          cp -R apps/admin/dist/. apps/website/dist/admin/
-
-      - name: Add Android download page
-        run: |
-          mkdir -p apps/website/dist/download
-          cp apps/mobile/download.html apps/website/dist/download/index.html
+          mkdir -p dist/admin dist/download
+          cp apps/website/legacy-redirect.html dist/index.html
+          cp apps/website/legacy-redirect.html dist/admin/index.html
+          cp apps/website/legacy-redirect.html dist/download/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/website/dist
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment
