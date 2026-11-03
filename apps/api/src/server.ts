@@ -17,6 +17,7 @@ jwtSecret();
 
 const app = express();
 const server = http.createServer(app);
+app.set("trust proxy", 1);
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173").split(",").map((origin) => origin.trim());
 function isLocalExpoOrigin(origin: string) {
   if (process.env.NODE_ENV === "production") return false;

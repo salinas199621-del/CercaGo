@@ -12,7 +12,7 @@ Marketplace local con API REST, PostgreSQL, Socket.IO, app Expo para cliente/com
 
 1. Copia `apps/api/.env.example` a `apps/api/.env` y configura PostgreSQL, un `JWT_SECRET` aleatorio de al menos 32 caracteres y las variables iniciales de administrador (contraseña de al menos 16 caracteres).
 2. Crea la base de datos y ejecuta `apps/api/sql/schema.sql`.
-   Si ya habías creado la base anteriormente, ejecuta en orden `apps/api/sql/migrations/001_store_discovery_fields.sql`, `apps/api/sql/migrations/002_venezuelan_marketplace_features.sql`, `apps/api/sql/migrations/003_bcv_exchange_rate.sql` y `apps/api/sql/migrations/004_google_sign_in.sql`.
+   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 004 de `apps/api/sql/migrations/`. La migración `005_app_settings.sql` puede ejecutarse también de forma segura para asegurar la tabla de configuración y sus valores iniciales.
 3. Ejecuta `apps/api/sql/seed_catalog.sql` después de crear los comercios para cargar seis productos de ejemplo por comercio, según su categoría.
 4. Desde la raíz ejecuta `npm install`.
 5. Crea la cuenta de administración inicial con `npm run create-admin -w @cercago/api`.
