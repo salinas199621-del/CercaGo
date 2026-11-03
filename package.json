@@ -8,7 +8,8 @@
   "workspaces": [
     "apps/api",
     "apps/mobile",
-    "apps/admin"
+    "apps/admin",
+    "apps/website"
   ],
   "devDependencies": {
     "react": "19.3.0",
@@ -19,7 +20,9 @@
     "dev:api": "npm run dev -w @cercago/api",
     "dev:mobile": "npm run start -w @cercago/mobile",
     "dev:admin": "npm run dev -w @cercago/admin",
+    "dev:website": "npm run dev -w @cercago/website",
     "build:api": "npm run build -w @cercago/api",
-    "build:admin": "npm run build -w @cercago/admin"
+    "build:admin": "npm run build -w @cercago/admin",
+    "build:website": "npm run build -w @cercago/website"
   }
 }

@@ -6,6 +6,7 @@ on:
     paths:
       - "apps/mobile/**"
       - "apps/admin/**"
+      - "apps/website/**"
       - ".github/workflows/deploy-cercago-web.yml"
       - "package-lock.json"
       - "package.json"
@@ -54,11 +55,11 @@ jobs:
             echo "VITE_ADMIN_BASE_PATH=/${GITHUB_REPOSITORY#*/}/admin/" >> "$GITHUB_ENV"
           fi
 
-      - name: Build mobile web app
-        working-directory: apps/mobile
+      - name: Build CercaGo information website
+        working-directory: apps/website
         env:
           VITE_API_URL: ${{ vars.CERCAGO_API_URL || 'https://cercago.onrender.com/api' }}
-        run: npm run build:web
+        run: npm run build
 
       - name: Build administration panel
         env:
@@ -66,18 +67,18 @@ jobs:
           VITE_BASE_PATH: ${{ env.VITE_ADMIN_BASE_PATH }}
         run: |
           npm run build -w @cercago/admin
-          mkdir -p apps/mobile/dist/admin
-          cp -R apps/admin/dist/. apps/mobile/dist/admin/
+          mkdir -p apps/website/dist/admin
+          cp -R apps/admin/dist/. apps/website/dist/admin/
 
       - name: Add Android download page
         run: |
-          mkdir -p apps/mobile/dist/download
-          cp apps/mobile/download.html apps/mobile/dist/download/index.html
+          mkdir -p apps/website/dist/download
+          cp apps/mobile/download.html apps/website/dist/download/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/mobile/dist
+          path: apps/website/dist
 
       - name: Deploy to GitHub Pages
         id: deployment
