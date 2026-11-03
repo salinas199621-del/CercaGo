@@ -29,7 +29,7 @@ export function parseBcvRate(html: string): Omit<ExchangeRateRecord, "updatedAt"
 }
 
 export async function fetchBcvRate(): Promise<Omit<ExchangeRateRecord, "updatedAt" | "source">> {
-  const response = await fetch("https://www.bcv.org.ve/", {
+  const response = await fetch("https://bcv.org.ve/", {
     headers: { "User-Agent": "CercaGo/1.0 (BCV exchange rate sync)" },
     signal: AbortSignal.timeout(15_000),
   });
