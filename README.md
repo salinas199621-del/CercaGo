@@ -40,18 +40,14 @@ El repositorio incluye `render.yaml` para desplegar la API Node en Render. Para 
 3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Solo para una base ya existente, aplica las migraciones 001, 002, 003 y 004 en ese orden.
 4. En Render, espera a que el servicio `cercago-api` esté activo. Comprueba `https://TU-API.onrender.com/health`; debe responder `{"status":"ok"}`.
 5. Crea el administrador inicial ejecutando `npm run create-admin -w @cercago/api` desde tu equipo, con `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y una contraseña de 16–72 bytes configurados temporalmente en la terminal. No añadas esos valores al repositorio.
-6. En GitHub abre **Settings → Secrets and variables → Actions → Variables** y crea `CERCAGO_API_URL` con la URL del API más `/api`, por ejemplo `https://cercago-api.onrender.com/api`. Configura también `GOOGLE_WEB_CLIENT_ID` como se explica abajo.
+6. En GitHub abre **Settings → Secrets and variables → Actions → Variables** y crea `CERCAGO_API_URL` con la URL del API más `/api`, por ejemplo `https://cercago-api.onrender.com/api`.
 7. En **Actions**, vuelve a ejecutar **Deploy CercaGo demo**. El build incorporará la URL pública del API y publicará tanto la app como el panel de administración. La tasa BCV, el acceso a cuentas reales y la sincronización entre dispositivos dependerán de que la API y la base de datos estén disponibles.
 
-## Iniciar sesión con Google
+## Inicio de sesión con Google (pospuesto)
 
-El botón permite crear o iniciar sesión en cuentas de cliente, tanto en la web como en Android. Los comercios y repartidores conservan sus formularios de alta; el SuperAdmin sigue usando correo y contraseña. El backend verifica el ID token firmado por Google y solo vincula cuentas con correo confirmado.
+Por ahora, CercaGo usa correo y contraseña para iniciar sesión y crear cuentas. Google queda pospuesto: no hace falta configurar Google Cloud ni añadir variables OAuth para publicar la versión actual. El backend conserva el endpoint de Google para reactivarlo más adelante.
 
-1. En [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials), crea un OAuth Client ID de tipo **Web application**. Añade `https://salinas199621-del.github.io` a los orígenes autorizados y, para desarrollo local, el origen local que uses (por ejemplo `http://localhost:8082`). El botón web usa Google Identity Services.
-2. Usa el Web Client ID como `GOOGLE_WEB_CLIENT_ID` en Render y en la variable de repositorio de GitHub **Settings → Secrets and variables → Actions → Variables**. El ID de cliente no es una contraseña; no publiques client secrets.
-3. Para Android, configura además un cliente OAuth Android en Google Cloud con el paquete `com.cercago.marketplace` y la huella SHA-1 del certificado EAS que firma el APK. El APK usa ese certificado; si después publicas en Google Play, registra también la huella de Play App Signing.
-4. En Expo EAS, define `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` para los entornos **preview** y **production**. Se usa el Web Client ID en el flujo nativo para solicitar el token que el backend valida. La integración nativa requiere un APK/EAS build y no funciona en Expo Go.
-5. Si la base de datos ya existía, ejecuta `apps/api/sql/migrations/004_google_sign_in.sql` antes de desplegar la API. Una base nueva incluye las columnas necesarias en `schema.sql`.
+Para reactivarlo después, configura las credenciales de OAuth en Google Cloud, el Client ID web en el backend y los clientes/orígenes necesarios para la web y Android. La migración `004_google_sign_in.sql` y el endpoint se mantienen; no son necesarios para cuentas de correo y contraseña.
 
 
 ## Generar e instalar un APK de Android
@@ -70,7 +66,6 @@ El APK es una aplicación Android instalada en el teléfono y no depende de GitH
 
 4. En Expo, configura estas variables para el entorno **preview**:
    - `EXPO_PUBLIC_API_URL`: URL pública del API, por ejemplo `https://api.tudominio.com/api`. Es pública y queda incluida en el APK.
-   - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`: Web Client ID de Google Cloud para habilitar el botón Google.
    - `GOOGLE_MAPS_ANDROID_API_KEY`: clave de Google Maps restringida para Android y para el paquete `com.cercago.marketplace`. Es necesaria para que el mapa nativo muestre los mapas de Google; no la guardes en el repositorio.
 5. Desde `apps\mobile`, compila el APK de prueba:
 

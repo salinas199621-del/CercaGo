@@ -51,6 +51,7 @@ function RootNavigator() {
             name="Inicio"
             component={session.user.role === "admin" ? AdminNotice : session.user.role === "store" ? StoreScreen : session.user.role === "driver" ? DriverScreen : CustomerScreen}
             options={{
+              headerShown: session.user.role !== "customer",
               title: session.user.role === "store" ? "Tu comercio" : session.user.role === "driver" ? "Repartidor" : session.user.role === "admin" ? "Administración" : "CercaGo",
               headerTintColor: "#191B22",
               headerTitleStyle: { fontWeight: "900" },
@@ -61,7 +62,7 @@ function RootNavigator() {
           />
         )}
       </Stack.Navigator>
-      <StatusBar style="dark" />
+      <StatusBar style={session?.user.role === "customer" ? "light" : "dark"} />
     </NavigationContainer>
   );
 }

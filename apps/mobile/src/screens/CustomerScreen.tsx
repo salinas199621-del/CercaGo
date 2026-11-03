@@ -13,6 +13,7 @@ import {
   View,
   type ScrollViewInstance,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
@@ -32,6 +33,7 @@ const palette = {
   ink: "#191B22",
   muted: "#777D89",
   orange: "#F45B3C",
+  brand: "#0D9B91",
   background: "#F7F8FA",
   green: "#23824E",
 };
@@ -104,19 +106,21 @@ function CategoryItem({ category, selected, onPress }: {
   );
 }
 
-function StoreCard({ store, exchangeRate, onPress }: { store: Store; exchangeRate: number | null; onPress: () => void }) {
+function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
+  store: Store; exchangeRate: number | null; onPress: () => void; cardWidth: number;
+}) {
   const ratingValue = Number(store.rating ?? 0);
   const rating = ratingValue > 0 ? ratingValue.toFixed(1) : "Nuevo";
   const fee = Number(store.delivery_fee ?? 2.99);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({
-      width: 260, backgroundColor: "#fff", borderRadius: 20, overflow: "hidden",
+      width: cardWidth, backgroundColor: "#fff", borderRadius: 20, overflow: "hidden",
       borderWidth: 1, borderColor: "#EEF0F3", opacity: pressed ? 0.94 : 1,
       transform: [{ scale: pressed ? 0.985 : 1 }],
     })}>
       <ImageBackground
         source={{ uri: store.image_url ?? promotions[0].image }}
-        style={{ height: 142, justifyContent: "space-between", padding: 12, backgroundColor: "#E9E9E9" }}
+        style={{ height: Math.round(cardWidth * 0.62), justifyContent: "space-between", padding: 10, backgroundColor: "#E9E9E9" }}
         imageStyle={{ resizeMode: "cover" }}
       >
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
@@ -144,9 +148,11 @@ function StoreCard({ store, exchangeRate, onPress }: { store: Store; exchangeRat
 }
 
 export function CustomerScreen() {
-  const { session, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { session, signOut, exchangeRate, exchangeRateValueDate } = useAuth();
   const token = session!.token;
   const { width: screenWidth } = useWindowDimensions();
+  const storeCardWidth = Math.max(150, Math.min(260, (screenWidth - 54) / 2));
+  const logoWidth = Math.min(142, Math.max(100, screenWidth - 202));
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<Store | null>(null);
@@ -392,8 +398,80 @@ export function CustomerScreen() {
   const deliveryFee = selected?.free_delivery ? 0 : Number(selected?.delivery_fee ?? 2.99);
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: !selected ? palette.brand : palette.background }} edges={["top", "bottom"]}>
+      <View style={{ flex: 1, backgroundColor: palette.background }}>
       <ScrollView ref={pageScrollRef} style={styles.page} contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: 112 }]} keyboardShouldPersistTaps="handled">
+        {!selected && (
+          <View style={{
+            marginHorizontal: -20, marginTop: -16, marginBottom: 2, paddingHorizontal: 20,
+            paddingTop: 5, paddingBottom: 16, backgroundColor: palette.brand,
+            borderBottomLeftRadius: 24, borderBottomRightRadius: 24, gap: 12,
+          }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Administrar direcciones"
+                onPress={() => setSheet("location")}
+                style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+              >
+                <Text style={{ color: "#fff", fontSize: 22 }}>☰</Text>
+              </Pressable>
+              <Image
+                source={require("../../assets/cercago-logo.png")}
+                resizeMode="cover"
+                accessibilityLabel="CercaGo"
+                style={{ width: logoWidth, height: 48, borderRadius: 10, backgroundColor: "#fff" }}
+              />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver pedidos y mensajes"
+                  onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }}
+                  style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                >
+                  <Text style={{ fontSize: 20 }}>🔔</Text>
+                  {orders.length > 0 && <View style={{ position: "absolute", right: 6, top: 5, width: 8, height: 8, borderRadius: 5, backgroundColor: palette.orange }} />}
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cerrar sesión"
+                  onPress={() => void signOut()}
+                  style={{ paddingHorizontal: 8, paddingVertical: 10 }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>Salir</Text>
+                </Pressable>
+              </View>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSheet("location")}
+              style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, backgroundColor: "#FFFFFF20" }}
+            >
+              <Text style={{ fontSize: 17 }}>📍</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#D7F5F1", fontSize: 10, fontWeight: "800" }}>ENTREGAR EN</Text>
+                <Text numberOfLines={1} style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>
+                  {addresses.find((item) => item.id === selectedAddressId)?.address_line ?? "Agrega tu ubicación"}
+                </Text>
+              </View>
+              <Text style={{ color: "#fff", fontSize: 16 }}>⌄</Text>
+            </Pressable>
+            {activeTab === "home" && (
+              <View style={{ backgroundColor: "#fff", borderRadius: 16, paddingHorizontal: 14, minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={{ fontSize: 19, color: "#9196A0" }}>⌕</Text>
+                <TextInput
+                  accessibilityLabel="Buscar comercios o antojos"
+                  placeholder="Buscar productos locales..."
+                  placeholderTextColor="#A0A4AE"
+                  value={search}
+                  onChangeText={setSearch}
+                  style={{ flex: 1, minHeight: 46, color: palette.ink, fontSize: 14 }}
+                />
+                {search.length > 0 && <Pressable onPress={() => setSearch("")}><Text style={{ color: palette.muted, padding: 8 }}>✕</Text></Pressable>}
+              </View>
+            )}
+          </View>
+        )}
         {error ? <Pressable onPress={() => setError("")}><Text style={styles.error}>{error}  ×</Text></Pressable> : null}
         <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
         {activeTab === "orders" ? (
@@ -482,19 +560,6 @@ export function CustomerScreen() {
           </>
         ) : (
           <>
-            <View style={{ backgroundColor: "#fff", borderRadius: 16, paddingHorizontal: 14, minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#EEF0F3" }}>
-              <Text style={{ fontSize: 18, color: "#9196A0" }}>⌕</Text>
-              <TextInput
-                accessibilityLabel="Buscar comercios o antojos"
-                placeholder="¿Qué se te antoja hoy?"
-                placeholderTextColor="#A0A4AE"
-                value={search}
-                onChangeText={setSearch}
-                style={{ flex: 1, minHeight: 48, color: palette.ink, fontSize: 14 }}
-              />
-              {search.length > 0 && <Pressable onPress={() => setSearch("")}><Text style={{ color: palette.muted, padding: 8 }}>✕</Text></Pressable>}
-            </View>
-
             <ScrollView
               ref={bannerRef}
               horizontal
@@ -548,7 +613,7 @@ export function CustomerScreen() {
               <Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>{visibleStores.length} lugares</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
-              {popular.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} onPress={() => void openStore(store)} />)}
+              {popular.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)}
             </ScrollView>
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
@@ -557,13 +622,13 @@ export function CustomerScreen() {
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
               {freeDelivery.length
-                ? freeDelivery.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} onPress={() => void openStore(store)} />)
+                ? freeDelivery.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)
                 : <Text style={[styles.subtitle, { padding: 16 }]}>Las promociones de envío gratis aparecerán aquí.</Text>}
             </ScrollView>
 
             <View style={{ marginTop: 8 }}><Text style={styles.section}>Nuevos comercios</Text><Text style={styles.subtitle}>Descubre quién llegó al barrio</Text></View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
-              {newest.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} onPress={() => void openStore(store)} />)}
+              {newest.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)}
             </ScrollView>
 
             <View style={{ backgroundColor: "#FFF0EC", padding: 18, borderRadius: 20, marginTop: 8 }}>
@@ -577,10 +642,10 @@ export function CustomerScreen() {
 
       <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#FFFFFFF5", borderTopWidth: 1, borderTopColor: "#ECEEF1", paddingHorizontal: 14, paddingTop: 9, paddingBottom: 14, flexDirection: "row", justifyContent: "space-around" }}>
         <Pressable onPress={() => { setActiveTab("home"); setSelected(null); setError(""); }} style={{ alignItems: "center", gap: 3, minWidth: 76, paddingVertical: 3 }}>
-          <Text style={{ fontSize: 20, color: activeTab === "home" ? palette.orange : palette.muted }}>🏠</Text><Text style={{ color: activeTab === "home" ? palette.orange : palette.muted, fontSize: 10, fontWeight: "900" }}>INICIO</Text>
+          <Text style={{ fontSize: 20, color: activeTab === "home" ? palette.brand : palette.muted }}>⌂</Text><Text style={{ color: activeTab === "home" ? palette.brand : palette.muted, fontSize: 10, fontWeight: "900" }}>INICIO</Text>
         </Pressable>
         <Pressable onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }} style={{ alignItems: "center", gap: 3, minWidth: 76, paddingVertical: 3 }}>
-          <Text style={{ fontSize: 20, color: activeTab === "orders" ? palette.orange : palette.muted }}>💬</Text><Text style={{ color: activeTab === "orders" ? palette.orange : palette.muted, fontSize: 10, fontWeight: "900" }}>PEDIDOS</Text>
+          <Text style={{ fontSize: 20, color: activeTab === "orders" ? palette.brand : palette.muted }}>▤</Text><Text style={{ color: activeTab === "orders" ? palette.brand : palette.muted, fontSize: 10, fontWeight: "900" }}>PEDIDOS</Text>
         </Pressable>
         <Pressable onPress={() => setSheet("cart")} style={{ alignItems: "center", gap: 3, minWidth: 76, paddingVertical: 3 }}>
           <View><Text style={{ fontSize: 20, color: palette.muted }}>🛍️</Text>{itemCount > 0 && <View style={{ position: "absolute", right: -9, top: -4, backgroundColor: palette.orange, borderRadius: 10, paddingHorizontal: 5 }}><Text style={{ color: "#fff", fontSize: 9, fontWeight: "900" }}>{itemCount}</Text></View>}</View>
@@ -739,6 +804,7 @@ export function CustomerScreen() {
         }}
       />
     </View>
+    </SafeAreaView>
   );
 }
 

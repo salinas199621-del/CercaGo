@@ -58,7 +58,6 @@ jobs:
         working-directory: apps/mobile
         env:
           EXPO_PUBLIC_API_URL: ${{ vars.CERCAGO_API_URL }}
-          EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ vars.GOOGLE_WEB_CLIENT_ID }}
         run: npx expo export --platform web
 
       - name: Build administration panel
