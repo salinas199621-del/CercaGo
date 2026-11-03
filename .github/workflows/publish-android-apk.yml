@@ -42,10 +42,10 @@ jobs:
         run: chmod +x apps/mobile/android/gradlew
 
       - name: Build native Android APK
-        working-directory: apps/mobile
+        working-directory: apps/mobile/android
         env:
           CERCAGO_API_URL: https://cercago.onrender.com/api
-        run: npx react-native build-android --mode=release
+        run: ./gradlew app:assembleRelease
 
       - name: Validate APK
         run: |
