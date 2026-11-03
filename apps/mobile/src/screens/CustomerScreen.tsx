@@ -22,6 +22,7 @@ import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 import { LocationPicker } from "../components/LocationPicker";
 import type { LocationCoordinates } from "../components/LocationPickerMap";
 import { OrderChatSheet } from "../components/OrderChatSheet";
+import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
 import { formatDualPrice } from "../currency";
 import type { Address, Category, Order, Product, Store } from "../types";
 import { socket } from "./socketRef";
@@ -470,6 +471,7 @@ export function CustomerScreen() {
                 {search.length > 0 && <Pressable onPress={() => setSearch("")}><Text style={{ color: palette.muted, padding: 8 }}>✕</Text></Pressable>}
               </View>
             )}
+            {activeTab === "home" && <AndroidDownloadLink compact />}
           </View>
         )}
         {error ? <Pressable onPress={() => setError("")}><Text style={styles.error}>{error}  ×</Text></Pressable> : null}

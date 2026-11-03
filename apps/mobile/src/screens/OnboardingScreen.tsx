@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import { Animated, Dimensions, Pressable, ScrollView, Text, View, type ScrollViewInstance } from "react-native";
 import { Button, styles } from "../components/UI";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
 
 const pages = [
   { eyebrow: "TODO TU BARRIO, EN UN SOLO LUGAR", title: "Lo bueno está más cerca", body: "Descubre restaurantes, tiendas y favoritos locales a pocos minutos de ti.", icon: "🏘️", color: "#FFF0E8", accent: "#F45B3C" },
@@ -71,6 +72,9 @@ export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComple
           ))}
         </View>
         <Button title={page === pages.length - 1 ? "Comenzar" : "Continuar"} onPress={() => page === pages.length - 1 ? onComplete() : moveTo(page + 1)} />
+        <View style={{ marginTop: 10 }}>
+          <AndroidDownloadLink />
+        </View>
       </View>
     </ScrollView>
   );

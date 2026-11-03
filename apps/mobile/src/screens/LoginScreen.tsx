@@ -3,6 +3,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, styles } from "../components/UI";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
 
 export function LoginScreen() {
   const { signIn, signUp, demoSignIn, exchangeRate, exchangeRateValueDate } = useAuth();
@@ -59,6 +60,7 @@ export function LoginScreen() {
           <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
         </View>
       </View>
+      {!registering && <AndroidDownloadLink />}
       {!registering && <>
         <View style={{ marginTop: 16, gap: 10 }}>
           <Text style={styles.section}>Explora la experiencia</Text>

@@ -54,6 +54,8 @@ Para reactivarlo después, configura las credenciales de OAuth en Google Cloud, 
 
 El APK es una aplicación Android instalada en el teléfono y no depende de GitHub Pages. Este proyecto no integra actualizaciones OTA: los cambios de código no se instalan solos. Para cada versión se genera otro APK; si se distribuye directamente, cada usuario debe descargarlo y abrirlo para instalar la actualización. Conserva el mismo paquete y las credenciales de firma de EAS para que Android permita actualizar la instalación existente.
 
+La página pública ofrece la descarga en `https://salinas199621-del.github.io/CercaGo/download/` y en la pantalla de acceso. El APK se distribuye desde el asset `CercaGo.apk` del GitHub Release más reciente, en `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. Para publicar otra versión, genera primero el APK en EAS, actualiza el enlace `APK_URL` en `.github/workflows/publish-android-apk.yml` y publica una etiqueta nueva con el formato `apk-vX.Y.Z`; GitHub Actions adjuntará el APK al Release automáticamente.
+
 1. Publica el API y PostgreSQL en un servidor accesible por HTTPS. Configura el API con `DATABASE_URL`, `JWT_SECRET` y `CLIENT_ORIGIN` (el origen del panel web publicado). No uses `localhost` en el APK: en el móvil, localhost apunta al propio móvil.
 2. Ejecuta el esquema o las migraciones indicadas al inicio de este README en PostgreSQL. El API consulta la tasa oficial BCV al arrancar; no pongas credenciales de la base de datos en GitHub ni en la app.
 3. Crea una cuenta en [Expo](https://expo.dev/), instala/configura EAS desde la carpeta móvil y vincula el proyecto:

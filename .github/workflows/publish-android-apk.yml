@@ -1,0 +1,29 @@
+name: Publish CercaGo Android APK
+
+on:
+  push:
+    tags:
+      - "apk-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK from EAS
+        env:
+          APK_URL: https://expo.dev/artifacts/eas/D-da9fFhtZEmTFIK3mTztkzzxUmfdtSfs-e2SWbDtB4.apk
+        run: |
+          curl --fail --location --retry 3 "$APK_URL" --output CercaGo.apk
+          test "$(dd if=CercaGo.apk bs=1 count=2 2>/dev/null)" = "PK"
+          test "$(stat --format=%s CercaGo.apk)" -gt 1000000
+
+      - name: Publish APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" CercaGo.apk \
+            --title "CercaGo para Android 1.0.0" \
+            --notes "Instala CercaGo en Android descargando CercaGo.apk. Esta versión usa el GPS para guardar coordenadas; el mapa visual se habilitará en una versión futura."

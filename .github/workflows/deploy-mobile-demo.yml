@@ -69,6 +69,11 @@ jobs:
           mkdir -p apps/mobile/dist/admin
           cp -R apps/admin/dist/. apps/mobile/dist/admin/
 
+      - name: Add Android download page
+        run: |
+          mkdir -p apps/mobile/dist/download
+          cp apps/mobile/download.html apps/mobile/dist/download/index.html
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
