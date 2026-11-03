@@ -3,8 +3,8 @@ services:
     name: cercago-api
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build:api
-    startCommand: npm run start -w @cercago/api
+    buildCommand: npm ci --include=dev && npm run build:api && node -e "require('node:fs').accessSync('apps/api/dist/server.js')"
+    startCommand: node --use-system-ca apps/api/dist/server.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
