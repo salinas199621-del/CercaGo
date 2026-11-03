@@ -14,7 +14,7 @@ import {
   type ScrollViewInstance,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as Location from "expo-location";
+import * as Location from "../location";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Loading, styles } from "../components/UI";

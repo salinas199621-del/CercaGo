@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Linking, ScrollView, Text, View } from "react-native";
-import * as Location from "expo-location";
+import * as Location from "../location";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Loading, styles } from "../components/UI";
@@ -60,6 +60,7 @@ export function DriverScreen() {
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 30_000, distanceInterval: 100 },
         reportLocation,
+        (reason) => setError(reason.message),
       );
       if (cancelled) subscription.remove();
     }

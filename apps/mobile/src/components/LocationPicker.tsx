@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Modal, Platform, Pressable, Text, View } from "react-native";
-import * as Location from "expo-location";
+import * as Location from "../location";
 import { Button, styles } from "./UI";
 import { LocationPickerMap, type LocationCoordinates } from "./LocationPickerMap";
 
@@ -26,16 +26,6 @@ export function LocationPicker({ visible, initialCoordinates, onClose, onSelect 
   async function updateCoordinates(next: LocationCoordinates) {
     setCoordinates(next);
     setError("");
-    try {
-      const [place] = await Location.reverseGeocodeAsync(next);
-      if (place) {
-        const label = [place.street, place.name, place.subregion, place.city].filter(Boolean).join(", ");
-        onSelect(next, label || undefined);
-        return;
-      }
-    } catch (reason) {
-      console.warn("No se pudo obtener la dirección de las coordenadas", reason);
-    }
     onSelect(next);
   }
 
@@ -52,6 +42,7 @@ export function LocationPicker({ visible, initialCoordinates, onClose, onSelect 
       subscription.current = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
         (position) => { void updateCoordinates(position.coords); },
+        (reason) => setError(reason.message),
       );
       setTracking(true);
     } catch (reason) {
@@ -107,7 +98,7 @@ function PlatformNotice() {
   if (Platform.OS !== "web" || typeof window === "undefined" || window.isSecureContext !== false) return null;
   return (
     <Text style={{ color: "#777D89", fontSize: 11, lineHeight: 16 }}>
-      En el navegador, el GPS requiere HTTPS. En una dirección local HTTP usa CercaGo en Expo Go o abre la app por HTTPS.
+      En el navegador, el GPS requiere HTTPS. Abre CercaGo desde la página segura para usar la ubicación.
     </Text>
   );
 }

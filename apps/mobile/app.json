@@ -1,44 +1,4 @@
 {
-  "expo": {
-    "name": "CercaGo",
-    "slug": "cercago",
-    "version": "1.0.1",
-    "orientation": "portrait",
-    "userInterfaceStyle": "light",
-    "icon": "./assets/cercago-logo.png",
-    "plugins": [
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/cercago-logo.png",
-          "imageWidth": 250,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
-      [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "CercaGo usa tu ubicación para mostrar comercios y entregas cercanas."
-        }
-      ]
-    ],
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "package": "com.cercago.marketplace",
-      "versionCode": 2,
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/cercago-logo.png",
-        "backgroundColor": "#ffffff"
-      }
-    },
-    "extra": {
-      "eas": {
-        "projectId": "037bd426-a065-4a85-9f02-083d3769a313"
-      }
-    },
-    "owner": "andres210896"
-  }
+  "name": "CercaGo",
+  "displayName": "CercaGo"
 }

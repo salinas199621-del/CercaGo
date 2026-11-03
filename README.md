@@ -1,6 +1,6 @@
 # CercaGo
 
-Marketplace local con API REST, PostgreSQL, Socket.IO, app Expo para cliente/comercio/repartidor y panel web administrativo.
+Marketplace local con API REST, PostgreSQL, Socket.IO, app React Native para cliente/comercio/repartidor y panel web administrativo.
 
 ## Requisitos
 
@@ -22,13 +22,13 @@ En la pantalla de acceso puedes entrar a la demo como cliente, comercio o repart
 
 ## Publicar y probar la web
 
-La página principal se sirve desde Render en [cercago.onrender.com](https://cercago.onrender.com). El mismo servicio sirve la app web en `/`, el API en `/api` y Socket.IO en el mismo dominio. Al desplegar cambios, Render compila la API y exporta la web desde Expo; la URL para descargar el APK es [cercago.onrender.com/download/](https://cercago.onrender.com/download/).
+La página principal se sirve desde Render en [cercago.onrender.com](https://cercago.onrender.com). El mismo servicio sirve la app web en `/`, el API en `/api` y Socket.IO en el mismo dominio. Al desplegar cambios, Render compila la API y la web con Vite; la URL para descargar el APK es [cercago.onrender.com/download/](https://cercago.onrender.com/download/).
 
 La cotización oficial en bolívares se consulta primero desde el BCV. Si su certificado HTTPS no permite una conexión segura, CercaGo usa como respaldo el endpoint oficial de DolarAPI, valida que corresponda a USD y a la tasa oficial, y guarda su fecha de actualización. El servidor comprueba la tasa al iniciar y cada hora; los pedidos guardan la tasa vigente al momento de crearse.
 
 GitHub Pages continúa disponible como demo alternativa y no instala una app nativa:
 
-GitHub Pages publica una copia web de la app Expo. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, configura el API y PostgreSQL como se indica abajo.
+GitHub Pages publica una copia web de la app. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, configura el API y PostgreSQL como se indica abajo.
 
 1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
 2. Abre **Actions** y espera a que termine el workflow **Deploy CercaGo demo**. El sitio público de este repositorio es [CercaGo](https://salinas199621-del.github.io/CercaGo/).
@@ -58,39 +58,30 @@ Para reactivarlo después, configura las credenciales de OAuth en Google Cloud, 
 
 ## Generar e instalar un APK de Android
 
-El APK es una aplicación Android instalada en el teléfono y no depende de GitHub Pages. Este proyecto no integra actualizaciones OTA: los cambios de código no se instalan solos. Para cada versión se genera otro APK; si se distribuye directamente, cada usuario debe descargarlo y abrirlo para instalar la actualización. Conserva el mismo paquete y las credenciales de firma de EAS para que Android permita actualizar la instalación existente.
+El APK es una aplicación Android instalada en el teléfono y no depende de GitHub Pages. Este proyecto no integra actualizaciones OTA: los cambios de código no se instalan solos. Para cada versión se genera otro APK; cada usuario debe descargarlo y abrirlo para instalar la actualización. El primer APK nativo usa la clave de desarrollo de Android; para instalarlo sobre la versión anterior firmada por otro proveedor hay que desinstalar primero la app anterior.
 
-La página pública ofrece la descarga en `https://salinas199621-del.github.io/CercaGo/download/` y en la pantalla de acceso. El APK se distribuye desde el asset `CercaGo.apk` del GitHub Release más reciente, en `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. Para publicar otra versión, genera primero el APK en EAS, actualiza el enlace `APK_URL` en `.github/workflows/publish-android-apk.yml` y publica una etiqueta nueva con el formato `apk-vX.Y.Z`; GitHub Actions adjuntará el APK al Release automáticamente.
+La página pública ofrece la descarga en `https://salinas199621-del.github.io/CercaGo/download/` y en la pantalla de acceso. El APK se distribuye desde el asset `CercaGo.apk` del GitHub Release más reciente, en `https://github.com/salinas199621-del/CercaGo/releases/latest/download/CercaGo.apk`. Para publicar otra versión, actualiza la versión y el `versionCode` en `apps/mobile/android/app/build.gradle`, y publica una etiqueta `apk-vX.Y.Z`; GitHub Actions compilará la app Android nativa y adjuntará el APK.
 
 1. Publica el API y PostgreSQL en un servidor accesible por HTTPS. Configura el API con `DATABASE_URL`, `JWT_SECRET` y `CLIENT_ORIGIN` (el origen del panel web publicado). No uses `localhost` en el APK: en el móvil, localhost apunta al propio móvil.
 2. Ejecuta el esquema o las migraciones indicadas al inicio de este README en PostgreSQL. El API consulta la tasa oficial BCV al arrancar; no pongas credenciales de la base de datos en GitHub ni en la app.
-3. Crea una cuenta en [Expo](https://expo.dev/), instala/configura EAS desde la carpeta móvil y vincula el proyecto:
+3. Instala JDK 17 y Android SDK Platform 36; configura `ANDROID_HOME` y acepta las licencias del SDK.
+4. Copia `apps/mobile/.env.example` a `apps/mobile/.env` y configura `CERCAGO_API_URL` con la URL HTTPS pública del API.
+5. Desde la raíz, compila el APK nativo:
 
    ```powershell
-   Set-Location "apps\mobile"
-   npx eas-cli@latest login
-   npx eas-cli@latest init
+   npm run build:apk -w @cercago/mobile
    ```
 
-4. En Expo, configura estas variables para el entorno **preview**:
-   - `EXPO_PUBLIC_API_URL`: URL pública del API, por ejemplo `https://api.tudominio.com/api`. Es pública y queda incluida en el APK.
-   - Para compilar temporalmente sin mapa, configura `EXPO_PUBLIC_NATIVE_MAPS_ENABLED=false`. El GPS y el guardado de coordenadas seguirán funcionando. Cuando tengas una clave de Google Maps restringida al paquete `com.cercago.marketplace`, configura `GOOGLE_MAPS_ANDROID_API_KEY` y cambia esa variable a `true`.
-5. Desde `apps\mobile`, compila el APK de prueba:
-
-   ```powershell
-   npm run build:apk
-   ```
-
-   Al terminar, EAS muestra el enlace para descargar el APK. Descárgalo en Android, permite la instalación desde esa fuente si el sistema lo solicita y abre el archivo.
-6. Para cada versión nueva, aumenta `expo.android.versionCode` en `app.json`, compila otro APK y comparte el enlace nuevo. Para distribución por Google Play usa `npm run build:production` y publica el AAB desde Play Console; Play puede instalar actualizaciones según los ajustes del usuario.
+   El APK se genera en `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Descárgalo en Android, permite la instalación desde esa fuente si el sistema lo solicita y abre el archivo.
+6. Para distribuir una versión, publica una etiqueta nueva con formato `apk-vX.Y.Z`; GitHub Actions compilará el APK nativo y lo adjuntará al Release.
 
 El APK usa cuentas/API reales cuando está conectado. Los botones de demo sirven para probar la interfaz, pero sus pedidos y chats locales no se comparten entre teléfonos. Para sincronización real, usa cuentas del backend desplegado.
 
-El API corre en `http://localhost:4000`; el panel en `http://localhost:5173`. En Expo Web abierto desde un teléfono, la app usa automáticamente el mismo host de la página en el puerto `4000`; el API permite el origen LAN de Expo en modo desarrollo. Para una app nativa instalada en un teléfono, copia `apps/mobile/.env.example` a `apps/mobile/.env`, reemplaza la IP de ejemplo por la IP LAN de tu PC, mantén ambos dispositivos en la misma red y deja el API encendido. Si Windows Firewall pregunta, permite Node.js en la red privada.
+El API corre en `http://localhost:4000`; la web móvil y el panel en `http://localhost:5173`. Para una app nativa instalada en un teléfono durante desarrollo, configura `CERCAGO_API_URL` con la IP LAN de tu PC, mantén ambos dispositivos en la misma red y deja el API encendido. Si Windows Firewall pregunta, permite Node.js en la red privada.
 
 La demo de los botones de acceso guarda los chats solo en el almacenamiento local del navegador: sirve para probar ambos roles en el mismo navegador, pero no sincroniza mensajes entre teléfonos. Para conversar entre dispositivos, inicia sesión con cuentas de la API y mantén API, PostgreSQL y Socket.IO activos. El chat consulta mensajes periódicamente como respaldo si la conexión en tiempo real se interrumpe.
 
-Las direcciones pueden guardar coordenadas mediante GPS y se pueden seleccionar o mover en el mapa nativo. En el teléfono, el navegador requiere HTTPS para conceder ubicación; para probar en una red local HTTP usa Expo Go con la app nativa o abre la versión web publicada por HTTPS. El mapa web usa OpenStreetMap; en Android nativo, Google Maps puede requerir una clave en la configuración de compilación.
+Las direcciones pueden guardar coordenadas mediante GPS. En el teléfono, el navegador requiere HTTPS para conceder ubicación; para probar en una red local HTTP usa una app nativa o abre la versión web publicada por HTTPS. El mapa web usa OpenStreetMap; el mapa nativo de Android está pendiente de configuración.
 
 Los repartidores comparten su ubicación mientras la app está activa; el API limita las ofertas a un radio configurable por `app_settings.delivery_zone_radius_km` (15 km por defecto). El comercio debe configurar latitud y longitud para publicar pedidos listos. La app móvil usa URL de imagen para los productos; configure almacenamiento de objetos/CDN antes de producción.
 
@@ -100,7 +91,7 @@ Los repartidores comparten su ubicación mientras la app está activa; el API li
 apps/
   admin/       Panel React/Vite para administración global
   api/         Express + TypeScript + PostgreSQL + Socket.IO
-  mobile/      App Expo/React Native con navegación por rol
+  mobile/      App React Native nativa, web Vite y navegación por rol
 ```
 
 La aplicación incluye los flujos principales para un MVP. Antes de operar en producción, configure TLS, secretos gestionados, almacenamiento de imágenes, proveedor de pagos, observabilidad, límites de tasa, copias de seguridad y pruebas de integración/aceptación.

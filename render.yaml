@@ -15,5 +15,5 @@ services:
         generateValue: true
       - key: CLIENT_ORIGIN
         value: https://cercago.onrender.com,https://salinas199621-del.github.io
-      - key: EXPO_PUBLIC_API_URL
+      - key: CERCAGO_API_URL
         value: https://cercago.onrender.com/api

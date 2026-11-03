@@ -20,21 +20,21 @@ const app = express();
 const server = http.createServer(app);
 app.set("trust proxy", 1);
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173").split(",").map((origin) => origin.trim());
-function isLocalExpoOrigin(origin: string) {
+function isLocalDevelopmentOrigin(origin: string) {
   if (process.env.NODE_ENV === "production") return false;
   try {
     const url = new URL(origin);
     const isLocalHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
     const isPrivateNetworkHost = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url.hostname);
     return url.protocol === "http:" &&
-      ["8081", "8082", "19006"].includes(url.port) &&
+      ["5173", "8081"].includes(url.port) &&
       (isLocalHost || isPrivateNetworkHost);
   } catch {
     return false;
   }
 }
 function allowClientOrigin(origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) {
-  if (!origin || allowedOrigins.includes(origin) || isLocalExpoOrigin(origin)) {
+  if (!origin || allowedOrigins.includes(origin) || isLocalDevelopmentOrigin(origin)) {
     callback(null, true);
     return;
   }

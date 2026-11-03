@@ -15,11 +15,36 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download APK from EAS
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build components
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.3"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build native Android APK
+        working-directory: apps/mobile
         env:
-          APK_URL: https://expo.dev/artifacts/eas/pB6B7rK73edmo-HoYPz8Q2PLlXJRBuDiejqOa-9w4kA.apk
+          CERCAGO_API_URL: https://cercago.onrender.com/api
+        run: npx react-native build-android --mode=release
+
+      - name: Validate APK
         run: |
-          curl --fail --location --retry 3 "$APK_URL" --output CercaGo.apk
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk CercaGo.apk
           test "$(dd if=CercaGo.apk bs=1 count=2 2>/dev/null)" = "PK"
           test "$(stat --format=%s CercaGo.apk)" -gt 1000000
 

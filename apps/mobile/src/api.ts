@@ -2,11 +2,14 @@ import { io, Socket } from "socket.io-client";
 import { Platform } from "react-native";
 import { demoApi, isDemoMode } from "./demoApi";
 
+declare const process: { env: { CERCAGO_API_URL?: string } };
+
 const defaultApiHost = Platform.OS === "web" && typeof window !== "undefined"
   ? window.location.hostname
   : Platform.OS === "android" ? "10.0.2.2" : "localhost";
 const defaultApiUrl = `http://${defaultApiHost}:4000/api`;
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? defaultApiUrl;
+const configuredApiUrl = process.env.CERCAGO_API_URL;
+export const API_URL = configuredApiUrl || defaultApiUrl;
 const BASE_URL = API_URL.replace(/\/api\/?$/, "");
 let socket: Socket | null = null;
 
@@ -15,7 +18,7 @@ export async function api<T>(path: string, token?: string, init: RequestInit = {
   const isUnconfiguredHostedWeb = Platform.OS === "web" &&
     typeof window !== "undefined" &&
     window.location.protocol === "https:" &&
-    !process.env.EXPO_PUBLIC_API_URL;
+    !configuredApiUrl;
   if (isPublicExchangeRate && isUnconfiguredHostedWeb) {
     return demoApi<T>(path, init);
   }
@@ -35,8 +38,11 @@ export async function api<T>(path: string, token?: string, init: RequestInit = {
     },
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `Error de solicitud (${response.status})`);
+    const body: unknown = await response.json().catch(() => null);
+    const error = typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+      ? body.error
+      : `Error de solicitud (${response.status})`;
+    throw new Error(error);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
