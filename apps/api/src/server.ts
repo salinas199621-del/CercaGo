@@ -1,5 +1,6 @@
 import "dotenv/config";
 import http from "node:http";
+import { resolve } from "node:path";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -42,7 +43,23 @@ function allowClientOrigin(origin: string | undefined, callback: (error: Error |
 const io = new Server(server, { cors: { origin: allowClientOrigin, methods: ["GET", "POST", "PATCH", "DELETE"] } });
 
 app.set("io", io);
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      "default-src": ["'self'"],
+      "base-uri": ["'self'"],
+      "font-src": ["'self'", "https:", "data:"],
+      "form-action": ["'self'"],
+      "frame-ancestors": ["'self'"],
+      "img-src": ["'self'", "data:", "https:"],
+      "object-src": ["'none'"],
+      "script-src": ["'self'"],
+      "script-src-attr": ["'none'"],
+      "style-src": ["'self'", "https:", "'unsafe-inline'"],
+      "connect-src": ["'self'", "https:", "wss:"],
+    },
+  },
+}));
 app.use(cors({ origin: allowClientOrigin }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/auth", rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false }));
@@ -57,6 +74,7 @@ app.get("/health", async (_req, res) => {
   }
 });
 app.use("/api", router);
+app.use(express.static(resolve(__dirname, "../public")));
 app.use(notFound);
 app.use(errorHandler);
 

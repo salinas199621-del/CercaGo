@@ -3,7 +3,7 @@ services:
     name: cercago-api
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build:api && node -e "require('node:fs').accessSync('apps/api/dist/server.js')"
+    buildCommand: npm ci --include=dev && npm run build:api && npm run build:web -w @cercago/mobile && mkdir -p apps/api/public/download && cp -R apps/mobile/dist/. apps/api/public/ && cp apps/mobile/download.html apps/api/public/download/index.html && node -e "require('node:fs').accessSync('apps/api/dist/server.js'); require('node:fs').accessSync('apps/api/public/index.html')"
     startCommand: node --use-system-ca apps/api/dist/server.js
     healthCheckPath: /health
     envVars:
@@ -14,4 +14,6 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CLIENT_ORIGIN
-        value: https://salinas199621-del.github.io
+        value: https://cercago.onrender.com,https://salinas199621-del.github.io
+      - key: EXPO_PUBLIC_API_URL
+        value: https://cercago.onrender.com/api

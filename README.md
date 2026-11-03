@@ -20,9 +20,13 @@ Marketplace local con API REST, PostgreSQL, Socket.IO, app Expo para cliente/com
 
 En la pantalla de acceso puedes entrar a la demo como cliente, comercio o repartidor. Los perfiles de demo usan datos locales; el tipo de cambio sí consulta el endpoint público de la API. Sin API disponible se indica que no hay tasa, en lugar de mostrar un valor inventado.
 
-## Publicar y probar la web con GitHub Pages
+## Publicar y probar la web
 
-GitHub Pages publica la app Expo como web estática (no instala una app nativa). La demo permite probar las interfaces con datos locales. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, despliega también la API y PostgreSQL como se indica abajo.
+La página principal se sirve desde Render en [cercago.onrender.com](https://cercago.onrender.com). El mismo servicio sirve la app web en `/`, el API en `/api` y Socket.IO en el mismo dominio. Al desplegar cambios, Render compila la API y exporta la web desde Expo; la URL para descargar el APK es [cercago.onrender.com/download/](https://cercago.onrender.com/download/).
+
+GitHub Pages continúa disponible como demo alternativa y no instala una app nativa:
+
+GitHub Pages publica una copia web de la app Expo. Para usar cuentas reales, la tasa BCV y sincronizar pedidos/chat entre dispositivos, configura el API y PostgreSQL como se indica abajo.
 
 1. En GitHub, abre **Settings → Pages** y elige **GitHub Actions** como fuente de despliegue.
 2. Abre **Actions** y espera a que termine el workflow **Deploy CercaGo demo**. El sitio público de este repositorio es [CercaGo](https://salinas199621-del.github.io/CercaGo/).
