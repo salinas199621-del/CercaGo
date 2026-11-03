@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x apps/mobile/android/gradlew
+
       - name: Build native Android APK
         working-directory: apps/mobile
         env:
