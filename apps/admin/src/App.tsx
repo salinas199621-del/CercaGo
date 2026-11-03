@@ -7,6 +7,7 @@ type Store = { id: string; name: string; address: string; owner_name: string; ow
 type StoreUpdate = { approved?: boolean; active?: boolean; commissionRate?: number };
 type Metrics = { users: Array<{ role: string; count: number }>; stores: { total: number; approved: number }; orders: Array<{ status: string; count: number }>; sales: { gross_sales: string; order_count: number } };
 type ExchangeRate = { rate: number; source: "BCV"; valueDate: string; updatedAt: string };
+type RecoveryStage = "login" | "request" | "confirm";
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
@@ -24,12 +25,23 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem("cercago-admin-token") ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [recoveryStage, setRecoveryStage] = useState<RecoveryStage>("login");
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryPasswordConfirm, setRecoveryPasswordConfirm] = useState("");
+  const [recoveryMessage, setRecoveryMessage] = useState("");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [commission, setCommission] = useState("10");
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [exchangeRateError, setExchangeRateError] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -90,6 +102,54 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
+  async function requestPasswordCode(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setRecoveryMessage("");
+    try {
+      const response = await fetch(`${API}/auth/password-reset/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: email }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "No se pudo enviar el código");
+      setRecoveryMessage(result.message ?? "Si la cuenta existe, enviaremos un código de recuperación.");
+      setRecoveryStage("confirm");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo enviar el código");
+    } finally { setBusy(false); }
+  }
+
+  async function confirmPasswordReset(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setRecoveryMessage("");
+    if (recoveryPassword !== recoveryPasswordConfirm) {
+      setError("La nueva contraseña y su confirmación no coinciden.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(`${API}/auth/password-reset/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: email, code: recoveryCode, password: recoveryPassword }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "No se pudo cambiar la contraseña");
+      setPassword("");
+      setRecoveryCode("");
+      setRecoveryPassword("");
+      setRecoveryPasswordConfirm("");
+      setRecoveryStage("login");
+      setRecoveryMessage("Contraseña actualizada. Ya puedes iniciar sesión.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo cambiar la contraseña");
+    } finally { setBusy(false); }
+  }
+
   async function updateStore(store: Store, update: StoreUpdate) {
     try {
       await request(`/admin/stores/${store.id}`, token, { method: "PATCH", body: JSON.stringify(update) });
@@ -114,6 +174,29 @@ export default function App() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la comisión"); }
   }
 
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setPasswordMessage("");
+    setPasswordError("");
+    if (newPassword !== confirmPassword) {
+      setPasswordError("La nueva contraseña y su confirmación no coinciden.");
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      const result = await request<{ message: string }>("/auth/password/change", token, {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setPasswordMessage(result.message);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (reason) {
+      setPasswordError(reason instanceof Error ? reason.message : "No se pudo cambiar la contraseña.");
+    } finally { setPasswordBusy(false); }
+  }
+
   async function refreshExchangeRate() {
     setBusy(true);
     setError("");
@@ -130,16 +213,42 @@ export default function App() {
 
   if (!token) return (
     <main className="login-shell">
-      <form className="login-card" onSubmit={(event) => void login(event)}>
+      <div className="login-card">
         <img className="admin-logo" src={cercaGoLogo} alt="CercaGo" />
         <p className="eyebrow">SUPERADMIN</p>
         <h1>Administración</h1>
-        <p>Ingresa con una cuenta autorizada.</p>
-        <label>Correo<input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-        <label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-        {error && <p className="error">{error}</p>}
-        <button disabled={busy}>{busy ? "Ingresando…" : "Ingresar"}</button>
-      </form>
+        {recoveryMessage && <p className="success" role="status">{recoveryMessage}</p>}
+        {recoveryStage === "login" && (
+          <form onSubmit={(event) => void login(event)}>
+            <p>Ingresa con una cuenta autorizada.</p>
+            <label>Correo<input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+            <label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button disabled={busy}>{busy ? "Ingresando…" : "Ingresar"}</button>
+            <button className="text-button" type="button" onClick={() => { setError(""); setRecoveryMessage(""); setRecoveryStage("request"); }}>¿Olvidaste tu contraseña?</button>
+          </form>
+        )}
+        {recoveryStage === "request" && (
+          <form onSubmit={(event) => void requestPasswordCode(event)}>
+            <p>Te enviaremos un código al correo de tu cuenta.</p>
+            <label>Correo<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button disabled={busy}>{busy ? "Enviando…" : "Enviar código"}</button>
+            <button className="text-button" type="button" onClick={() => { setError(""); setRecoveryStage("login"); }}>Volver al inicio de sesión</button>
+          </form>
+        )}
+        {recoveryStage === "confirm" && (
+          <form onSubmit={(event) => void confirmPasswordReset(event)}>
+            <p>Ingresa el código de 6 dígitos enviado a {email} y crea tu nueva contraseña.</p>
+            <label>Código<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} required /></label>
+            <label>Nueva contraseña<input type="password" autoComplete="new-password" minLength={10} maxLength={72} value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} required /><small>Debe tener al menos 10 caracteres.</small></label>
+            <label>Confirmar nueva contraseña<input type="password" autoComplete="new-password" minLength={10} maxLength={72} value={recoveryPasswordConfirm} onChange={(event) => setRecoveryPasswordConfirm(event.target.value)} required /></label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button disabled={busy}>{busy ? "Guardando…" : "Cambiar contraseña"}</button>
+            <button className="text-button" type="button" onClick={() => { setError(""); setRecoveryStage("request"); }}>Solicitar otro código</button>
+          </form>
+        )}
+      </div>
     </main>
   );
 
@@ -149,6 +258,17 @@ export default function App() {
         <div className="topbar-brand"><img className="admin-logo" src={cercaGoLogo} alt="CercaGo" /><div><p className="eyebrow">SUPERADMIN</p><h1>Panel de administración</h1></div></div>
         <button className="outline" onClick={logout}>Cerrar sesión</button>
       </header>
+      <section className="panel password-panel">
+        <div><h2>Seguridad de la cuenta</h2><p className="muted">Cambia tu contraseña de administrador.</p></div>
+        <form onSubmit={(event) => void changePassword(event)}>
+          <label>Contraseña actual<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+          <label>Nueva contraseña<input type="password" autoComplete="new-password" minLength={8} maxLength={72} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /><small>Debe tener al menos 8 caracteres.</small></label>
+          <label>Confirmar nueva contraseña<input type="password" autoComplete="new-password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></label>
+          {passwordError && <p className="error" role="alert">{passwordError}</p>}
+          {passwordMessage && <p className="success" role="status">{passwordMessage}</p>}
+          <button disabled={passwordBusy}>{passwordBusy ? "Guardando…" : "Cambiar contraseña"}</button>
+        </form>
+      </section>
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">Actualizando información…</p>}
       <section className="metrics">

@@ -14,8 +14,11 @@ button.outline { color: #0f766e; border: 1px solid #99f6e4; background: #fff; }
 .login-card h1, .topbar h1 { margin: 4px 0 8px; }
 .login-card > p:not(.eyebrow) { color: #64748b; margin: 0 0 20px; }
 .login-card label { display: grid; gap: 7px; margin: 14px 0; color: #334155; font-size: 14px; font-weight: 600; }
+.login-card label small { color: #64748b; font-size: 12px; font-weight: 400; }
+.login-card form > p:not(.error) { color: #64748b; margin: 0 0 20px; line-height: 1.5; }
 input { width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 9px; color: #0f172a; background: #fff; }
 .login-card button { width: 100%; margin-top: 8px; }
+.login-card button.text-button { color: #0f766e; background: transparent; padding: 8px; font-size: 14px; }
 .eyebrow { color: #0f766e; font-weight: 800; font-size: 12px; letter-spacing: .12em; margin: 0; }
 .dashboard { width: min(1440px, 100%); margin: 0 auto; padding: 30px; }
 .topbar, .section-heading, .commission-panel, .commission-panel form { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
@@ -29,6 +32,11 @@ input { width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radiu
 .panel { padding: 22px; margin: 16px 0; }
 .panel h2 { margin: 0 0 6px; font-size: 19px; }
 .panel p { margin: 0; }
+.password-panel form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 12px; margin-top: 18px; }
+.password-panel label { display: grid; gap: 7px; color: #334155; font-size: 14px; font-weight: 600; }
+.password-panel label small { color: #64748b; font-size: 12px; font-weight: 400; }
+.password-panel form > button { justify-self: start; }
+.success { color: #166534; padding: 11px 14px; border: 1px solid #bbf7d0; border-radius: 9px; background: #f0fdf4; }
 .commission-panel form { flex-shrink: 0; }
 .commission-panel form input { width: 100px; }
 .commission-panel form button { margin-left: 8px; }
@@ -44,5 +52,5 @@ td small { display: block; color: #64748b; margin-top: 4px; }
 .actions { display: flex; gap: 6px; }
 button.small { padding: 7px 9px; font-size: 12px; white-space: nowrap; }
 .error { color: #991b1b; padding: 11px 14px; border: 1px solid #fecaca; border-radius: 9px; background: #fef2f2; }
-@media (max-width: 850px) { .metrics { grid-template-columns: repeat(2, 1fr); } .dashboard { padding: 18px; } .commission-panel { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 850px) { .metrics { grid-template-columns: repeat(2, 1fr); } .dashboard { padding: 18px; } .commission-panel { align-items: flex-start; flex-direction: column; } .password-panel form { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .metrics { grid-template-columns: 1fr 1fr; gap: 8px; } .metrics article { padding: 14px; } .metrics strong { font-size: 21px; } .topbar { align-items: flex-start; } .topbar-brand { align-items: flex-start; flex-direction: column; gap: 10px; } .topbar-brand .admin-logo { width: 138px; } }

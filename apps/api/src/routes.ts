@@ -163,6 +163,28 @@ router.post("/auth/login", asyncHandler(async (req, res) => {
   return res.json({ user: safeUser, token: tokenFor(user) });
 }));
 
+router.post("/auth/password/change", authenticate, asyncHandler(async (req, res) => {
+  const input = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8).refine(
+      (value) => Buffer.byteLength(value, "utf8") <= 72,
+      "La contraseña no puede superar 72 bytes",
+    ),
+  }).parse(req.body);
+  const userId = actor(req as AuthRequest).id;
+  const { rows } = await pool.query<{ password_hash: string | null }>(
+    "SELECT password_hash FROM users WHERE id = $1 AND active = TRUE",
+    [userId],
+  );
+  const passwordHash = rows[0]?.password_hash;
+  if (!passwordHash || !(await bcrypt.compare(input.currentPassword, passwordHash))) {
+    return res.status(401).json({ error: "La contraseña actual es incorrecta" });
+  }
+  const nextHash = await bcrypt.hash(input.newPassword, 12);
+  await pool.query("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2", [nextHash, userId]);
+  return res.json({ message: "Contraseña actualizada correctamente" });
+}));
+
 router.post("/auth/password-reset/request", asyncHandler(async (req, res) => {
   const input = z.object({ identifier: z.string().trim().min(1).max(255) }).parse(req.body);
   const { isEmail, value } = userIdentifier(input.identifier);
