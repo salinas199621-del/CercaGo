@@ -8,17 +8,21 @@
     "icon": "./assets/cercago-logo.png",
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/cercago-logo.png",
+          "imageWidth": 250,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "CercaGo usa tu ubicación para mostrar comercios y entregas cercanas."
         }
       ]
     ],
-    "splash": {
-      "image": "./assets/cercago-logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true
     },

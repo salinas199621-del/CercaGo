@@ -10,6 +10,10 @@
     "apps/mobile",
     "apps/admin"
   ],
+  "devDependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
   "scripts": {
     "start": "npm run start -w @cercago/api",
     "dev:api": "npm run dev -w @cercago/api",
