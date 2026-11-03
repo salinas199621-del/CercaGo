@@ -3,9 +3,10 @@ import { ScrollView, Text, View } from "react-native";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, styles } from "../components/UI";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { GoogleSignInButton } from "../components/GoogleSignInButton";
 
 export function LoginScreen() {
-  const { signIn, signUp, demoSignIn, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { signIn, signInWithGoogle, signUp, demoSignIn, exchangeRate, exchangeRateValueDate } = useAuth();
   const [registering, setRegistering] = useState(false);
   const [role, setRole] = useState<"customer" | "store" | "driver">("customer");
   const [name, setName] = useState("");
@@ -41,6 +42,18 @@ export function LoginScreen() {
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo iniciar sesión");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function continueWithGoogle(credential: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await signInWithGoogle(credential);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo iniciar sesión con Google");
     } finally {
       setBusy(false);
     }
@@ -91,6 +104,10 @@ export function LoginScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={{ backgroundColor: "#fff", borderRadius: 22, padding: 18, gap: 12, borderWidth: 1, borderColor: "#EEF0F3", marginTop: 4 }}>
         <Text style={{ color: "#191B22", fontSize: 18, fontWeight: "900" }}>{registering ? "Crea tu cuenta" : "Inicia sesión"}</Text>
+        {!registering && <>
+          <GoogleSignInButton disabled={busy} onCredential={(credential) => void continueWithGoogle(credential)} onError={setError} />
+          <Text style={[styles.subtitle, { textAlign: "center" }]}>o continúa con tu correo</Text>
+        </>}
         <Field label="Correo electrónico" value={email} onChangeText={setEmail} keyboardType="email-address" placeholder="tu@email.com" />
         <Field label="Contraseña" value={password} onChangeText={setPassword} secureTextEntry placeholder="Mínimo 10 caracteres" />
         <Button title={busy ? "Procesando..." : registering ? "Crear cuenta" : "Continuar"} onPress={() => void submit()} disabled={busy} />

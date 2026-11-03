@@ -15,3 +15,5 @@ services:
         generateValue: true
       - key: CLIENT_ORIGIN
         value: https://salinas199621-del.github.io
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false

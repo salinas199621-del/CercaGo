@@ -6,6 +6,9 @@ module.exports = ({ config }) => {
   if (process.env.EAS_BUILD && !process.env.GOOGLE_MAPS_ANDROID_API_KEY) {
     throw new Error("Configura GOOGLE_MAPS_ANDROID_API_KEY para que el mapa funcione en el APK de Android.");
   }
+  if (process.env.EAS_BUILD && !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) {
+    throw new Error("Configura EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID para habilitar el acceso con Google.");
+  }
 
   return {
     ...config,

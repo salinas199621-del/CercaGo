@@ -12,6 +12,7 @@ interface AuthValue {
   exchangeRate: number | null;
   exchangeRateValueDate: string | null;
   signIn(email: string, password: string): Promise<void>;
+  signInWithGoogle(credential: string): Promise<void>;
   signUp(payload: Record<string, unknown>): Promise<void>;
   demoSignIn(role: "customer" | "store" | "driver"): Promise<void>;
   signOut(): Promise<void>;
@@ -106,6 +107,13 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     }));
   }
 
+  async function signInWithGoogle(credential: string) {
+    await save(await api<Session>("/auth/google", undefined, {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    }));
+  }
+
   async function signUp(payload: Record<string, unknown>) {
     await save(await api<Session>("/auth/register", undefined, {
       method: "POST",
@@ -121,7 +129,7 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     setSession(null);
   }
 
-  const value = useMemo(() => ({ session, loading, exchangeRate, exchangeRateValueDate, signIn, signUp, signOut, demoSignIn }), [session, loading, exchangeRate, exchangeRateValueDate]);
+  const value = useMemo(() => ({ session, loading, exchangeRate, exchangeRateValueDate, signIn, signInWithGoogle, signUp, signOut, demoSignIn }), [session, loading, exchangeRate, exchangeRateValueDate]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

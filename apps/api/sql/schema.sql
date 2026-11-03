@@ -9,11 +9,13 @@ CREATE TABLE users (
   name VARCHAR(120) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   phone VARCHAR(32),
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,
+  google_sub TEXT UNIQUE,
   role user_role NOT NULL DEFAULT 'customer',
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT users_auth_method_check CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL)
 );
 CREATE INDEX users_role_active_idx ON users(role, active);
 

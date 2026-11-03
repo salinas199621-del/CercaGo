@@ -23,6 +23,9 @@ export async function api<T>(path: string, token?: string, init: RequestInit = {
     await new Promise((resolve) => setTimeout(resolve, 180));
     return demoApi<T>(path, init);
   }
+  if (isUnconfiguredHostedWeb) {
+    throw new Error("La API de CercaGo aún no está configurada para esta web.");
+  }
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {

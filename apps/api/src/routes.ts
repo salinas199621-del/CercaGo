@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { pool } from "./db";
 import { allowRoles, authenticate, jwtSecret } from "./middleware/auth";
@@ -9,6 +10,7 @@ import { refreshExchangeRate } from "./exchangeRate";
 import type { AuthRequest } from "./types";
 
 const router = Router();
+const googleOAuthClient = new OAuth2Client();
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(255),
@@ -81,11 +83,100 @@ router.post("/auth/login", asyncHandler(async (req, res) => {
     [input.email],
   );
   const user = result.rows[0];
-  if (!user || !user.active || !(await bcrypt.compare(input.password, user.password_hash))) {
+  if (!user || !user.active || !user.password_hash || !(await bcrypt.compare(input.password, user.password_hash))) {
     return res.status(401).json({ error: "Correo o contraseña incorrectos" });
   }
   const { password_hash: _passwordHash, active: _active, ...safeUser } = user;
   return res.json({ user: safeUser, token: tokenFor(user) });
+}));
+
+router.post("/auth/google", asyncHandler(async (req, res) => {
+  const input = z.object({ credential: z.string().min(1).max(8192) }).parse(req.body);
+  const clientId = process.env.GOOGLE_WEB_CLIENT_ID;
+  if (!clientId) return res.status(503).json({ error: "El acceso con Google aún no está configurado." });
+
+  let googleUser;
+  try {
+    const ticket = await googleOAuthClient.verifyIdToken({ idToken: input.credential, audience: clientId });
+    googleUser = ticket.getPayload();
+  } catch {
+    return res.status(401).json({ error: "La credencial de Google es inválida o venció." });
+  }
+  if (!googleUser?.sub || !googleUser.email || googleUser.email_verified !== true) {
+    return res.status(401).json({ error: "Google no proporcionó un correo verificado." });
+  }
+
+  const email = googleUser.email.toLowerCase();
+  const name = (googleUser.name || email.split("@")[0]).trim().slice(0, 120);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [email]);
+    const linkedResult = await client.query(
+      "SELECT id, name, email, phone, role, active, google_sub FROM users WHERE google_sub = $1 FOR UPDATE",
+      [googleUser.sub],
+    );
+    const emailResult = await client.query(
+      "SELECT id, name, email, phone, role, active, google_sub FROM users WHERE email = $1 FOR UPDATE",
+      [email],
+    );
+    let user = linkedResult.rows[0] as {
+      id: string; name: string; email: string; phone: string | null;
+      role: string; active: boolean; google_sub: string | null;
+    } | undefined;
+    const emailUser = emailResult.rows[0] as typeof user;
+
+    if (user && emailUser && user.id !== emailUser.id) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Ese correo y esa cuenta de Google pertenecen a perfiles distintos." });
+    }
+    if (!user && emailUser) {
+      user = emailUser;
+      if (user.role !== "customer") {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Google está disponible para cuentas de cliente. Usa el acceso habitual de tu perfil." });
+      }
+      if (user.google_sub && user.google_sub !== googleUser.sub) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Esta cuenta ya está vinculada a otro perfil de Google." });
+      }
+      if (!user.google_sub) {
+        await client.query("UPDATE users SET google_sub = $1, updated_at = NOW() WHERE id = $2", [googleUser.sub, user.id]);
+        user.google_sub = googleUser.sub;
+      }
+    }
+
+    if (user && !user.active) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Esta cuenta está desactivada." });
+    }
+    if (user && user.role !== "customer") {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Google está disponible para cuentas de cliente. Usa el acceso habitual de tu perfil." });
+    }
+    if (!user) {
+      const created = await client.query(
+        `INSERT INTO users(name, email, password_hash, google_sub, role)
+         VALUES ($1, $2, NULL, $3, 'customer')
+         RETURNING id, name, email, phone, role, active, google_sub`,
+        [name, email, googleUser.sub],
+      );
+      user = created.rows[0] as typeof user;
+    }
+
+    if (!user) throw new Error("No se pudo crear o recuperar el perfil de Google.");
+    await client.query("COMMIT");
+    const safeUser = { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role };
+    return res.json({ user: safeUser, token: tokenFor(safeUser) });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "Esta cuenta de Google ya está vinculada a otro perfil." });
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }));
 
 router.get("/auth/me", authenticate, (req, res) => res.json({ user: actor(req as AuthRequest) }));
