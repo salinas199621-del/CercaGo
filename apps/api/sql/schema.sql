@@ -1,0 +1,137 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TYPE user_role AS ENUM ('admin', 'store', 'driver', 'customer');
+CREATE TYPE order_status AS ENUM ('placed', 'accepted', 'preparing', 'ready', 'picked_up', 'delivered', 'cancelled');
+CREATE TYPE delivery_status AS ENUM ('pending', 'accepted', 'picked_up', 'delivered', 'cancelled');
+
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  phone VARCHAR(32),
+  password_hash TEXT NOT NULL,
+  role user_role NOT NULL DEFAULT 'customer',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX users_role_active_idx ON users(role, active);
+
+CREATE TABLE categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL UNIQUE,
+  icon_url TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE
+);
+INSERT INTO categories(name) VALUES
+  ('Restaurantes'), ('Supermercados'), ('Farmacias'), ('Tiendas'), ('Cafeterías')
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE stores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
+  category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+  name VARCHAR(160) NOT NULL,
+  description TEXT,
+  address TEXT NOT NULL,
+  latitude NUMERIC(10,7),
+  longitude NUMERIC(10,7),
+  image_url TEXT,
+  rating NUMERIC(2,1) NOT NULL DEFAULT 0 CHECK (rating BETWEEN 0 AND 5),
+  delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 2.99 CHECK (delivery_fee >= 0),
+  estimated_delivery_minutes INTEGER NOT NULL DEFAULT 30 CHECK (estimated_delivery_minutes > 0),
+  commission_rate NUMERIC(5,2) NOT NULL DEFAULT 10 CHECK (commission_rate BETWEEN 0 AND 100),
+  approved BOOLEAN NOT NULL DEFAULT FALSE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX stores_category_active_idx ON stores(category_id, active, approved);
+CREATE INDEX stores_geo_idx ON stores(latitude, longitude);
+
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  name VARCHAR(160) NOT NULL,
+  description TEXT,
+  price NUMERIC(12,2) NOT NULL CHECK (price >= 0),
+  image_url TEXT,
+  in_stock BOOLEAN NOT NULL DEFAULT TRUE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX products_store_active_idx ON products(store_id, active, in_stock);
+
+CREATE TABLE addresses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label VARCHAR(60) NOT NULL DEFAULT 'Casa',
+  address_line TEXT NOT NULL,
+  latitude NUMERIC(10,7),
+  longitude NUMERIC(10,7),
+  instructions TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX addresses_user_idx ON addresses(user_id, created_at DESC);
+
+CREATE TABLE driver_locations (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  latitude NUMERIC(10,7) NOT NULL,
+  longitude NUMERIC(10,7) NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX driver_locations_geo_idx ON driver_locations(latitude, longitude);
+
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  store_id UUID NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+  address_id UUID REFERENCES addresses(id) ON DELETE SET NULL,
+  delivery_address TEXT NOT NULL,
+  delivery_latitude NUMERIC(10,7),
+  delivery_longitude NUMERIC(10,7),
+  status order_status NOT NULL DEFAULT 'placed',
+  subtotal NUMERIC(12,2) NOT NULL CHECK (subtotal >= 0),
+  delivery_fee NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0),
+  total NUMERIC(12,2) NOT NULL CHECK (total >= 0),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX orders_customer_created_idx ON orders(customer_id, created_at DESC);
+CREATE INDEX orders_store_status_created_idx ON orders(store_id, status, created_at DESC);
+CREATE INDEX orders_status_created_idx ON orders(status, created_at DESC);
+
+CREATE TABLE order_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+  product_name VARCHAR(160) NOT NULL,
+  unit_price NUMERIC(12,2) NOT NULL CHECK (unit_price >= 0),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  line_total NUMERIC(12,2) NOT NULL CHECK (line_total >= 0)
+);
+CREATE INDEX order_items_order_idx ON order_items(order_id);
+
+CREATE TABLE deliveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+  driver_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  status delivery_status NOT NULL DEFAULT 'pending',
+  accepted_at TIMESTAMPTZ,
+  picked_up_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX deliveries_driver_status_idx ON deliveries(driver_id, status);
+CREATE INDEX deliveries_status_created_idx ON deliveries(status, created_at);
+
+CREATE TABLE app_settings (
+  key VARCHAR(80) PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO app_settings(key, value) VALUES ('default_commission_rate', '10'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+INSERT INTO app_settings(key, value) VALUES ('delivery_zone_radius_km', '15'::jsonb)
+ON CONFLICT (key) DO NOTHING;

@@ -1,0 +1,64 @@
+name: Deploy CercaGo demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - ".github/workflows/deploy-mobile-demo.yml"
+      - "package-lock.json"
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.3"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Set Expo base path
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REPOSITORY" == "$GITHUB_REPOSITORY_OWNER.github.io" ]]; then
+            echo "EXPO_BASE_URL=" >> "$GITHUB_ENV"
+          else
+            echo "EXPO_BASE_URL=/${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Export Expo web app
+        working-directory: apps/mobile
+        run: npx expo export --platform web
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/mobile/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

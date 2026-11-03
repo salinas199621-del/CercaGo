@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "CercaGo",
+    "slug": "cercago",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      ["expo-location", { "locationWhenInUsePermission": "CercaGo usa tu ubicación para mostrar comercios y entregas cercanas." }]
+    ],
+    "splash": { "backgroundColor": "#f8fafc" },
+    "ios": { "supportsTablet": true },
+    "android": { "adaptiveIcon": { "backgroundColor": "#ffffff" } }
+  }
+}
