@@ -87,7 +87,7 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
   private fun downloadUpdate(url: URL, version: String): File {
     val directory = File(context.cacheDir, "cercago-updates").apply { mkdirs() }
     val apk = File(directory, "CercaGo-$version.apk")
-    if (isApk(apk)) {
+    if (isUpdateApk(apk, version)) {
       emitProgress(apk.length(), apk.length(), "downloading")
       return apk
     }
@@ -134,7 +134,9 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
           require(declaredLength <= 0 || total == declaredLength) { "La descarga quedó incompleta." }
         }
       }
-      require(isApk(temporary)) { "El archivo descargado no es un APK válido." }
+      require(isUpdateApk(temporary, version)) {
+        "El archivo descargado no es la versión $version de CercaGo. Descarga cancelada."
+      }
       emitProgress(temporary.length(), temporary.length(), "downloading")
       require(temporary.renameTo(apk)) { "No se pudo guardar el archivo de actualización." }
       return apk
@@ -149,6 +151,25 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
     return file.inputStream().use { input ->
       input.read() == 0x50 && input.read() == 0x4b && input.read() == 0x03 && input.read() == 0x04
     }
+  }
+
+  private fun isUpdateApk(file: File, expectedVersion: String): Boolean {
+    if (!isApk(file)) return false
+    val updateInfo = context.packageManager.getPackageArchiveInfo(file.absolutePath, 0) ?: return false
+    if (updateInfo.packageName != context.packageName || updateInfo.versionName != expectedVersion) return false
+
+    val currentInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+    val updateVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      updateInfo.longVersionCode
+    } else {
+      updateInfo.versionCode.toLong()
+    }
+    val currentVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      currentInfo.longVersionCode
+    } else {
+      currentInfo.versionCode.toLong()
+    }
+    return updateVersionCode > currentVersionCode
   }
 
   private fun emitProgress(downloadedBytes: Long, totalBytes: Long, phase: String) {
