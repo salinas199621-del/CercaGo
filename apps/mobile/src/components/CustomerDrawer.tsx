@@ -8,14 +8,14 @@ import { useAppearance } from "../appearance";
 
 type DrawerItem = "home" | "orders" | "cart" | "addresses" | "messages" | "rate" | "settings";
 
-const items: Array<{ id: DrawerItem; icon: LucideIcon; label: string }> = [
-  { id: "home", icon: House, label: "Inicio" },
-  { id: "orders", icon: ListChecks, label: "Mis pedidos" },
-  { id: "cart", icon: ShoppingBag, label: "Mi bolsa" },
-  { id: "addresses", icon: MapPin, label: "Mis direcciones" },
-  { id: "messages", icon: MessageCircle, label: "Mis mensajes" },
-  { id: "rate", icon: CircleDollarSign, label: "Tasa BCV del día" },
-  { id: "settings", icon: Settings, label: "Ajustes" },
+const items: Array<{ id: DrawerItem; icon: LucideIcon; label: string; color: string }> = [
+  { id: "home", icon: House, label: "Inicio", color: "#0B9B89" },
+  { id: "orders", icon: ListChecks, label: "Mis pedidos", color: "#6A7B93" },
+  { id: "cart", icon: ShoppingBag, label: "Mi bolsa", color: "#F08A37" },
+  { id: "addresses", icon: MapPin, label: "Mis direcciones", color: "#E85E49" },
+  { id: "messages", icon: MessageCircle, label: "Mis mensajes", color: "#7957C8" },
+  { id: "rate", icon: CircleDollarSign, label: "Tasa BCV del día", color: "#20986A" },
+  { id: "settings", icon: Settings, label: "Ajustes", color: "#607185" },
 ];
 
 export function CustomerDrawer({ visible, name, email, avatar, onClose, onSelect, onProfile, onSignOut }: {
@@ -70,7 +70,9 @@ export function CustomerDrawer({ visible, name, email, avatar, onClose, onSelect
                   onPress={() => onSelect(item.id)}
                   style={({ pressed }) => ({ minHeight: 52, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 13, borderRadius: 14, backgroundColor: pressed ? theme.soft : "transparent" })}
                 >
-                  <item.icon size={20} color={theme.primaryDark} strokeWidth={2.2} />
+                  <View style={{ width: 34, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: `${item.color}18` }}>
+                    <item.icon size={19} color={item.color} strokeWidth={2.2} />
+                  </View>
                   <Text style={{ color: theme.ink, fontSize: 14, fontWeight: "700" }}>{item.label}</Text>
                 </Pressable>
               ))}

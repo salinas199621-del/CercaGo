@@ -27,7 +27,7 @@ export function HomeSplash() {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.primary }}>
       <Animated.View style={{ alignItems: "center", gap: 16, transform: [{ scale }], opacity }}>
-        <CercaGoLogo style={{ width: 238, height: 238, borderRadius: 36, backgroundColor: theme.surface }} />
+        <CercaGoLogo style={{ width: 238, height: 96, borderRadius: 18, backgroundColor: theme.surface }} />
         <Text style={{ color: "#E7FFFC", fontSize: 13, fontWeight: "700", letterSpacing: 1.1 }}>TODO LO BUENO, MÁS CERCA</Text>
       </Animated.View>
     </View>

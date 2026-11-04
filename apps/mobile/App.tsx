@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Modal, NativeModules, Platform, Pressable, StatusBar, Text, View } from "react-native";
+import { ActivityIndicator, Alert, DeviceEventEmitter, Image, Linking, Modal, NativeModules, Platform, Pressable, StatusBar, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -14,7 +14,7 @@ import { HomeSplash } from "./src/components/HomeSplash";
 import { AppearanceProvider, useAppearance } from "./src/appearance";
 
 const Stack = createNativeStackNavigator();
-const CURRENT_APP_VERSION = "1.0.9";
+const CURRENT_APP_VERSION = "1.1.0";
 const VERSION_MANIFEST_URL = "https://salinas199621-del.github.io/CercaGo/app-version.json";
 const nativeUpdater = NativeModules.CercaGoUpdate as {
   installUpdate: (url: string, version: string) => Promise<void>;
@@ -32,6 +32,23 @@ function getVersionManifestUrl() {
 }
 
 type VersionManifest = { app_version?: unknown; update_url?: unknown };
+type UpdateProgress = {
+  downloadedBytes: number;
+  totalBytes: number;
+  percent: number;
+  phase: "downloading" | "installing";
+};
+
+const initialUpdateProgress: UpdateProgress = {
+  downloadedBytes: 0,
+  totalBytes: 0,
+  percent: -1,
+  phase: "downloading",
+};
+
+function formatMegabytes(bytes: number) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function isNewerVersion(candidate: string, current: string) {
   const parse = (value: string) => value.split(".").map((part) => Number(part));
@@ -66,6 +83,7 @@ function RootNavigator() {
   const [splashDone, setSplashDone] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<{ version: string; url: string } | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress>(initialUpdateProgress);
   useEffect(() => {
     AsyncStorage.getItem("cercago-onboarding-done")
       .then((value) => setOnboardingDone(value === "true"))
@@ -127,6 +145,11 @@ function RootNavigator() {
         Alert.alert("No se pudo iniciar la actualización", "CercaGo no tiene disponible el instalador integrado. Descarga el APK desde la página de CercaGo.");
         return;
       }
+      setUpdateProgress(initialUpdateProgress);
+      const progressSubscription = DeviceEventEmitter.addListener(
+        "CercaGoUpdateProgress",
+        (progress: UpdateProgress) => setUpdateProgress(progress),
+      );
       setInstallingUpdate(true);
       void nativeUpdater.installUpdate(availableUpdate.url, availableUpdate.version)
         .catch((error: unknown) => {
@@ -136,7 +159,11 @@ function RootNavigator() {
             error instanceof Error ? error.message : "Intenta de nuevo. Si Android te pide autorización, permite a CercaGo instalar aplicaciones y vuelve a la app.",
           );
         })
-        .finally(() => setInstallingUpdate(false));
+        .finally(() => {
+          progressSubscription.remove();
+          setInstallingUpdate(false);
+          setUpdateProgress(initialUpdateProgress);
+        });
       return;
     }
     if (availableUpdate) {
@@ -151,7 +178,7 @@ function RootNavigator() {
       <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: theme.primaryDark }}>
         <View style={{ alignItems: "center", backgroundColor: theme.surface, borderRadius: 24, padding: 22, gap: 14 }}>
           <Image
-            source={require("./assets/cercago-logo.png")}
+            source={require("./assets/cercago-wordmark.png")}
             accessibilityLabel="Logo de CercaGo"
             resizeMode="contain"
             style={{ width: 220, height: 110 }}
@@ -159,8 +186,33 @@ function RootNavigator() {
           <Text style={{ color: theme.ink, fontSize: 21, fontWeight: "900" }}>¡Nueva actualización disponible de CercaGo!</Text>
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21, textAlign: "center" }}>Actualiza CercaGo a la versión {availableUpdate.version}.</Text>
           {Platform.OS === "android" && <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
-            La descarga comienza aquí. Si Android te lleva a Ajustes, activa «Permitir desde esta fuente» y vuelve a CercaGo. Después, confirma la instalación en la ventana de Android.
+            La descarga se realiza dentro de CercaGo. Si Android te lleva a Ajustes, activa «Permitir desde esta fuente» y vuelve a CercaGo. Después, confirma la instalación en la ventana de Android.
           </Text>}
+          {installingUpdate && Platform.OS === "android" && <>
+            <Text style={{ color: theme.ink, fontSize: 13, fontWeight: "700" }}>
+              {updateProgress.phase === "installing"
+                ? "Descarga completa. Abriendo el instalador de Android…"
+                : updateProgress.percent >= 0
+                  ? `Descargando actualización: ${updateProgress.percent}%`
+                  : updateProgress.downloadedBytes > 0
+                    ? `Descargando actualización: ${formatMegabytes(updateProgress.downloadedBytes)}`
+                    : "Conectando para iniciar la descarga…"}
+            </Text>
+            <View
+              accessibilityLabel={updateProgress.percent >= 0
+                ? `Descarga de actualización: ${updateProgress.percent}%`
+                : "Descargando actualización"}
+              style={{ width: "100%", height: 8, overflow: "hidden", borderRadius: 8, backgroundColor: theme.background }}
+            >
+              <View style={{
+                width: `${updateProgress.percent >= 0 ? updateProgress.percent : 0}%`,
+                height: "100%",
+                borderRadius: 8,
+                backgroundColor: theme.primary,
+              }} />
+            </View>
+            {updateProgress.percent < 0 && updateProgress.phase === "downloading" && <ActivityIndicator color={theme.primary} />}
+          </>}
           <Pressable
             accessibilityRole="button"
             disabled={installingUpdate}
@@ -168,7 +220,9 @@ function RootNavigator() {
             style={{ width: "100%", minHeight: 48, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center", opacity: installingUpdate ? 0.7 : 1 }}
           >
             {installingUpdate
-              ? <ActivityIndicator color="#fff" />
+              ? updateProgress.phase === "installing"
+                ? <Text style={{ color: "#fff", fontWeight: "900" }}>Preparando instalación…</Text>
+                : <ActivityIndicator color="#fff" />
               : <Text style={{ color: "#fff", fontWeight: "900" }}>{Platform.OS === "android" ? "Descargar e instalar" : "Actualizar ahora"}</Text>}
           </Pressable>
         </View>

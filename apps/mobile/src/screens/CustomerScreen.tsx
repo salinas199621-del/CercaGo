@@ -15,7 +15,7 @@ import {
   type ScrollViewInstance,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Bell, Carrot, Croissant, House, MapPin, Menu, Pill, Search, ShoppingBag, Shapes, Store as StoreIcon, Trash2, Utensils, Wrench, type LucideIcon } from "lucide-react-native";
+import { Bell, Bike, Carrot, Clock3, Croissant, House, MapPin, Menu, Pill, Search, ShoppingBag, Shapes, Store as StoreIcon, Trash2, Utensils, Wrench, type LucideIcon } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Location from "../location";
 import { api } from "../api";
@@ -54,19 +54,24 @@ type StoreCoupon = {
 };
 type AppliedCoupon = { code: string; discountAmount: string; discountType: "percent" | "fixed"; discountValue: number };
 
-type HomeCategoryGroup = { key: string; name: string; aliases: string[]; icon: LucideIcon; color: string };
+type HomeCategoryGroup = { key: string; name: string; aliases: string[]; icon: LucideIcon; color: string; iconColor: string };
 const primaryCategoryGroups: HomeCategoryGroup[] = [
-  { key: "supermarkets", name: "Supermercados", aliases: ["supermercado", "supermercados"], icon: Carrot, color: "#EDF7E9" },
-  { key: "minimarkets", name: "Bodegas / Mini", aliases: ["bodega", "bodegas", "minimarket", "minimarkets", "minimercado", "minimercados", "bodegas / minimarkets", "bodegas y minimarkets"], icon: StoreIcon, color: "#E9F5E9" },
-  { key: "pharmacies", name: "Farmacias", aliases: ["farmacia", "farmacias"], icon: Pill, color: "#EAF4FF" },
-  { key: "restaurants", name: "Restaurantes", aliases: ["restaurante", "restaurantes", "comida", "comidas", "comida rapida", "fast food", "comida rapida / restaurantes", "restaurantes / comida rapida"], icon: Utensils, color: "#FFF0E8" },
-  { key: "hardware", name: "Repuestos / Ferre.", aliases: ["repuesto", "repuestos", "ferreteria", "ferreterias", "repuestos / ferreteria"], icon: Wrench, color: "#EAF4FF" },
-  { key: "cafes-bakeries", name: "Cafés / Pan", aliases: ["cafeteria", "cafeterias", "cafe", "cafes", "panaderia", "panaderias", "cafeterias / panaderias", "panaderias / cafeterias"], icon: Croissant, color: "#FFF4DD" },
-  { key: "shops", name: "Tiendas / Misc.", aliases: ["tienda", "tiendas", "miscelanea", "miscelaneas", "tiendas y miscelaneas"], icon: ShoppingBag, color: "#F5EDFF" },
+  { key: "supermarkets", name: "Supermercados", aliases: ["supermercado", "supermercados"], icon: Carrot, color: "#FFF3DD", iconColor: "#D98300" },
+  { key: "minimarkets", name: "Bodegas", aliases: ["bodega", "bodegas", "minimarket", "minimarkets", "minimercado", "minimercados", "bodega / minimarket", "bodegas / minimarkets", "bodegas y minimarkets"], icon: StoreIcon, color: "#E5F8F1", iconColor: "#07896A" },
+  { key: "pharmacies", name: "Farmacias", aliases: ["farmacia", "farmacias"], icon: Pill, color: "#EAF2FF", iconColor: "#3878D4" },
+  { key: "restaurants", name: "Restaurantes", aliases: ["restaurante", "restaurantes", "comida", "comidas", "comida rapida", "fast food", "comida rapida / restaurantes", "restaurantes / comida rapida", "comida rapida y restaurantes", "restaurantes y comida rapida"], icon: Utensils, color: "#FFF0E8", iconColor: "#E56A3A" },
+  { key: "hardware", name: "Repuestos", aliases: ["repuesto", "repuestos", "ferreteria", "ferreterias", "ferreteria / repuestos", "repuestos / ferreteria", "ferreteria y repuestos", "repuestos y ferreteria"], icon: Wrench, color: "#F0EBFF", iconColor: "#7653C6" },
+  { key: "cafes-bakeries", name: "Cafeterías", aliases: ["cafeteria", "cafeterias", "cafe", "cafes", "panaderia", "panaderias", "cafeteria / panaderia", "cafeterias / panaderias", "panaderias / cafeterias"], icon: Croissant, color: "#FFF4DD", iconColor: "#A86B2D" },
+  { key: "shops", name: "Tiendas", aliases: ["tienda", "tiendas", "miscelanea", "miscelaneas", "tiendas y miscelaneas", "tiendas / miscelaneas"], icon: ShoppingBag, color: "#FDEDF5", iconColor: "#CE4A8B" },
 ];
 
 function normalizeCategoryName(name: string) {
   return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function storeHasFreeDelivery(store: Store) {
+  const fee = Number(store.delivery_fee);
+  return store.free_delivery === true || (Number.isFinite(fee) && fee <= 0);
 }
 
 function categoryGroupKey(name: string, id: string) {
@@ -93,10 +98,10 @@ function CategoryItem({ category, selected, onPress }: {
         <View style={{
           width: 58, height: 58, borderRadius: 20,
           backgroundColor: selected ? theme.soft : category.color,
-          borderWidth: selected ? 2 : 1, borderColor: selected ? theme.primaryDark : theme.border,
+          borderWidth: selected ? 2 : 1, borderColor: selected ? category.iconColor : theme.border,
           alignItems: "center", justifyContent: "center",
         }}>
-          <category.icon size={24} color={theme.primaryDark} strokeWidth={2} />
+          <category.icon size={25} color={category.iconColor} strokeWidth={2.2} />
         </View>
         <Text numberOfLines={2} style={{ color: selected ? theme.primaryDark : theme.ink, fontSize: 10, lineHeight: 13, fontWeight: selected ? "800" : "600", textAlign: "center", minHeight: 26, width: "100%" }}>
           {category.name}
@@ -116,55 +121,46 @@ function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
   const feeInBolivars = Number(exchangeRate) > 0
     ? new Intl.NumberFormat("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(fee * Number(exchangeRate))
     : null;
+  const freeDelivery = storeHasFreeDelivery(store);
+  const deliveryMinutes = store.estimated_delivery_minutes ?? 30;
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({
-      width: cardWidth, minWidth: 0, backgroundColor: theme.surface, borderRadius: 16, overflow: "hidden",
+      width: cardWidth, minWidth: 0, minHeight: 96, flexDirection: "row", alignItems: "center", gap: 11,
+      padding: 10, backgroundColor: theme.surface, borderRadius: 16, overflow: "hidden",
       borderWidth: 1, borderColor: theme.border, opacity: pressed ? 0.94 : 1,
-      shadowColor: "#151927", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 3,
+      shadowColor: "#151927", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
       transform: [{ scale: pressed ? 0.985 : 1 }],
     })}>
-      <ImageBackground
+      <Image
         source={{ uri: store.image_url ?? defaultPromotions[0].mediaUrl }}
-        style={{ height: Math.max(108, Math.round(cardWidth * 0.68)), justifyContent: "space-between", padding: 10, backgroundColor: "#E9E9E9" }}
-        imageStyle={{ resizeMode: "cover" }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
-          <View style={{ flex: 1, minWidth: 0, maxWidth: "72%", alignSelf: "flex-start", backgroundColor: "#191B22D9", paddingVertical: 6, paddingHorizontal: 9, borderRadius: 12 }}>
-            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: "#fff", fontSize: 11, lineHeight: 15, fontWeight: "800" }}>
-              {store.category_name ?? "Comercio local"}
+        style={{ width: 72, height: 72, flexShrink: 0, borderRadius: 14, backgroundColor: theme.soft }}
+        resizeMode="cover"
+      />
+      <View style={{ flex: 1, minWidth: 0, justifyContent: "center", gap: 4 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+          <Text numberOfLines={1} style={{ flex: 1, color: theme.muted, fontSize: 10, fontWeight: "700" }}>{store.category_name ?? "Comercio local"}</Text>
+          <Text numberOfLines={1} style={{ color: "#C17B00", backgroundColor: "#FFF7DF", borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3, fontSize: 10, lineHeight: 13, fontWeight: "900" }}>
+            {ratingValue > 0 ? `★ ${rating}` : rating}
+          </Text>
+        </View>
+        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.ink, fontSize: 14, lineHeight: 18, fontWeight: "900" }}>{store.name}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 10, rowGap: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Bike size={14} color={freeDelivery ? (theme.darkMode ? "#4ADE80" : "#168653") : theme.muted} strokeWidth={2.3} />
+            <Text numberOfLines={1} style={{ color: freeDelivery ? (theme.darkMode ? "#4ADE80" : "#168653") : theme.muted, fontSize: 10, fontWeight: "800" }}>
+              {freeDelivery ? "Delivery gratis" : `Envío $${fee.toFixed(2)}`}
             </Text>
           </View>
-          <View style={{ flexShrink: 0, alignSelf: "flex-start", backgroundColor: "#FFFFFFF2", paddingVertical: 6, paddingHorizontal: 9, borderRadius: 12 }}>
-            <Text numberOfLines={1} style={{ color: "#252832", fontSize: 11, lineHeight: 15, fontWeight: "900" }}>
-              {ratingValue > 0 ? `★ ${rating}` : rating}
-            </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Clock3 size={13} color={theme.muted} strokeWidth={2} />
+            <Text numberOfLines={1} style={{ color: theme.muted, fontSize: 10, fontWeight: "700" }}>{deliveryMinutes}–{deliveryMinutes + 10} min</Text>
           </View>
         </View>
-        {store.free_delivery === true && (
-          <View style={{ alignSelf: "flex-start", maxWidth: "100%", backgroundColor: theme.darkMode ? "#16865B" : "#23824E", borderRadius: 12, paddingVertical: 6, paddingHorizontal: 10 }}>
-            <Text numberOfLines={1} style={{ color: "#fff", fontSize: 10, lineHeight: 14, fontWeight: "900" }}>DELIVERY GRATIS</Text>
-          </View>
+        {feeInBolivars && !freeDelivery && (
+          <Text numberOfLines={1} style={{ color: theme.muted, fontSize: 10, lineHeight: 13 }}>Delivery Bs. {feeInBolivars}</Text>
         )}
-      </ImageBackground>
-      <View style={{ padding: 12, gap: 9 }}>
-        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.ink, fontSize: 14, lineHeight: 19, fontWeight: "900" }}>{store.name}</Text>
-        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={{ color: theme.muted, fontSize: 11, lineHeight: 15, fontWeight: "700" }}>
-              ◷ {store.estimated_delivery_minutes ?? 30}–{(store.estimated_delivery_minutes ?? 30) + 10} min
-            </Text>
-          </View>
-          <View style={{ flex: 1, minWidth: 0, alignItems: "flex-end" }}>
-            <Text numberOfLines={1} style={{ color: store.free_delivery === true || fee === 0 ? (theme.darkMode ? "#4ADE80" : "#23824E") : theme.muted, fontSize: 11, lineHeight: 15, fontWeight: "800", textAlign: "right" }}>
-              {store.free_delivery === true || fee === 0 ? "Envío gratis" : `Envío $${fee.toFixed(2)}`}
-            </Text>
-            {feeInBolivars && store.free_delivery !== true && fee > 0 && (
-              <Text numberOfLines={1} style={{ color: theme.muted, fontSize: 10, lineHeight: 14, textAlign: "right" }}>Bs. {feeInBolivars}</Text>
-            )}
-          </View>
-        </View>
         {store.distance_km != null && (
-          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.muted, fontSize: 10, lineHeight: 14 }}>
+          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.muted, fontSize: 10, lineHeight: 13 }}>
             {Number(store.distance_km).toFixed(1)} km · {store.address}
           </Text>
         )}
@@ -187,7 +183,7 @@ export function CustomerScreen() {
   };
   const token = session!.token;
   const { width: screenWidth } = useWindowDimensions();
-  const storeCardWidth = Math.max(120, Math.min(260, (screenWidth - 53) / 2));
+  const storeCardWidth = Math.max(0, Math.min(840, screenWidth - 40));
   const logoWidth = Math.min(120, Math.max(42, screenWidth - 295));
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -263,9 +259,10 @@ export function CustomerScreen() {
       aliases: [normalizeCategoryName(category.name)],
       icon: StoreIcon,
       color: "#F0F1F4",
+      iconColor: "#667085",
     }));
   const categoryTiles: HomeCategoryGroup[] = [
-    { key: "", name: "Todo", aliases: [], icon: Shapes, color: "#EEF0F4" },
+    { key: "", name: "Todos", aliases: [], icon: Shapes, color: "#EEF0F4", iconColor: "#667085" },
     ...primaryCategoryGroups,
     ...extraCategoryGroups,
   ];
@@ -659,7 +656,7 @@ export function CustomerScreen() {
       ["bodega", "supermercado"],
     ][index] ?? [];
     const category = categories.find((item) => categoryOptions.some((term) => item.name.toLowerCase().includes(term)));
-    setSelectedCategory(category?.id ?? "");
+    setSelectedCategory(category ? categoryGroupKey(category.name, category.id) : "");
     setSearch(category ? "" : index === 1 ? "café" : index === 2 ? "mercado" : "comida");
     setSelected(null);
     setActiveTab("home");
@@ -688,9 +685,9 @@ export function CustomerScreen() {
   const popular = nearbyEnabled
     ? visibleStores
     : [...visibleStores].sort((a, b) => Number(b.rating ?? 0) - Number(a.rating ?? 0));
-  const freeDelivery = visibleStores.filter((store) => store.free_delivery === true);
+  const freeDelivery = visibleStores.filter(storeHasFreeDelivery);
   const newest = [...visibleStores].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-  const deliveryFee = selected?.free_delivery ? 0 : Number(selected?.delivery_fee ?? 2.99);
+  const deliveryFee = selected && storeHasFreeDelivery(selected) ? 0 : Number(selected?.delivery_fee ?? 2.99);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: !selected ? theme.header : palette.background }} edges={["top", "bottom"]}>
@@ -841,7 +838,7 @@ export function CustomerScreen() {
             </View>
             <View style={{ borderRadius: 24, overflow: "hidden", backgroundColor: "#E7E8E7" }}>
               <ImageBackground source={{ uri: selected.image_url ?? defaultPromotions[0].mediaUrl }} style={{ height: 210, justifyContent: "space-between", padding: 18 }}>
-                {selected.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: palette.green, overflow: "hidden", borderRadius: 20, paddingVertical: 7, paddingHorizontal: 11, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
+                {storeHasFreeDelivery(selected) && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: palette.green, overflow: "hidden", borderRadius: 20, paddingVertical: 7, paddingHorizontal: 11, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
                 <View style={{ backgroundColor: "#151515A8", padding: 14, borderRadius: 16 }}>
                   <Text style={{ color: "#fff", fontSize: 21, fontWeight: "900" }}>{selected.name}</Text>
                   <Text style={{ color: "#fff", marginTop: 5 }}>{Number(selected.rating ?? 0) > 0 ? `★ ${Number(selected.rating).toFixed(1)}  ·  ` : ""}◷ {selected.estimated_delivery_minutes ?? 30}–{(selected.estimated_delivery_minutes ?? 30) + 10} min  ·  {selected.address}</Text>
@@ -909,7 +906,7 @@ export function CustomerScreen() {
             </View>
 
             <View onLayout={(event) => setStoreSectionY(event.nativeEvent.layout.y)} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={[styles.section, { color: palette.ink }]}>¿Qué buscamos?</Text>
+              <Text style={[styles.section, { color: palette.ink }]}>Categorías rápidas</Text>
               <Pressable accessibilityRole="button" onPress={() => void findNearby()}><Text style={{ color: palette.orange, fontWeight: "800", fontSize: 12 }}>{nearbyEnabled ? "Cerca de ti ✓" : "Ver cercanos"}</Text></Pressable>
             </View>
             {nearbyCoordinates && <Text style={{ color: palette.muted, fontSize: 11 }}>Distancias desde {nearbyCoordinates.latitude.toFixed(3)}, {nearbyCoordinates.longitude.toFixed(3)}.</Text>}
@@ -925,32 +922,32 @@ export function CustomerScreen() {
             </ScrollView>
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-              <View><Text style={[styles.section, { color: palette.ink }]}>Populares en tu zona</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Los favoritos de tus vecinos</Text></View>
+              <View><Text style={[styles.section, { color: palette.ink }]}>Comercios cercanos</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Los favoritos de tus vecinos</Text></View>
               <Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>{visibleStores.length} lugares</Text>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
+            <View style={{ gap: 9 }}>
               {popular.length
                 ? popular.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)
                 : <View style={{ minHeight: 88, justifyContent: "center", gap: 6, paddingHorizontal: 14 }}>
                   <Text style={{ color: palette.ink, fontSize: 13, fontWeight: "800" }}>No hay comercios en esta categoría todavía.</Text>
                   <Pressable accessibilityRole="button" onPress={() => setSelectedCategory("")}><Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>Ver todas las categorías</Text></Pressable>
                 </View>}
-            </ScrollView>
+            </View>
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-              <View><Text style={[styles.section, { color: palette.ink }]}>Envío gratis</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Hoy invitan ellos 🚲</Text></View>
+              <View><Text style={[styles.section, { color: palette.ink }]}>Envío gratis</Text><Text style={[styles.subtitle, { color: palette.muted }]}>La moto va por nuestra cuenta</Text></View>
               <Text style={{ color: palette.green, fontWeight: "800", fontSize: 12 }}>Sin costo</Text>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
+            <View style={{ gap: 9 }}>
               {freeDelivery.length
                 ? freeDelivery.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)
                 : <Text style={[styles.subtitle, { padding: 16, color: palette.muted }]}>Las promociones de envío gratis aparecerán aquí.</Text>}
-            </ScrollView>
+            </View>
 
             <View style={{ marginTop: 8 }}><Text style={[styles.section, { color: palette.ink }]}>Nuevos comercios</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Descubre quién llegó al barrio</Text></View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 13, paddingVertical: 4 }}>
+            <View style={{ gap: 9 }}>
               {newest.map((store) => <StoreCard key={store.id} store={store} exchangeRate={exchangeRate} cardWidth={storeCardWidth} onPress={() => void openStore(store)} />)}
-            </ScrollView>
+            </View>
 
             <View style={{ backgroundColor: theme.soft, padding: 18, borderRadius: 20, marginTop: 8 }}>
               <Text style={{ fontSize: 22 }}>💛</Text>
@@ -1274,7 +1271,7 @@ export function CustomerScreen() {
                   <View style={{ gap: 3 }}>
                     <Text style={{ color: palette.muted }}>Subtotal: {formatDualPrice(cartTotal, exchangeRate)}</Text>
                     {appliedCoupon && <Text style={{ color: palette.green, fontWeight: "800" }}>Descuento: −{formatDualPrice(appliedCoupon.discountAmount, exchangeRate)}</Text>}
-                    <Text style={{ color: palette.muted }}>Envío: {selected?.free_delivery ? "gratis" : formatDualPrice(deliveryFee, exchangeRate)}</Text>
+                    <Text style={{ color: palette.muted }}>Envío: {selected && storeHasFreeDelivery(selected) ? "gratis" : formatDualPrice(deliveryFee, exchangeRate)}</Text>
                     <Text style={{ color: palette.ink, fontWeight: "900" }}>Total</Text>
                   </View>
                   <Text style={{ color: palette.ink, fontWeight: "900" }}>{formatDualPrice(cartTotal - Number(appliedCoupon?.discountAmount ?? 0) + deliveryFee, exchangeRate)}</Text>

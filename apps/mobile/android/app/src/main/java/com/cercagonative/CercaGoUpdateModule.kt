@@ -7,12 +7,15 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.uimanager.ViewManager
 import java.io.File
 import java.net.HttpURLConnection
@@ -24,6 +27,7 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
 
   companion object {
     const val NAME = "CercaGoUpdate"
+    private const val PROGRESS_EVENT = "CercaGoUpdateProgress"
     private const val INSTALL_PERMISSION_REQUEST = 8421
     private const val MAX_APK_BYTES = 150L * 1024L * 1024L
   }
@@ -84,7 +88,10 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
   private fun downloadUpdate(url: URL, version: String): File {
     val directory = File(context.cacheDir, "cercago-updates").apply { mkdirs() }
     val apk = File(directory, "CercaGo-$version.apk")
-    if (isApk(apk)) return apk
+    if (isApk(apk)) {
+      emitProgress(apk.length(), apk.length(), "downloading")
+      return apk
+    }
     apk.delete()
     val temporary = File(directory, "CercaGo-$version.download")
     val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -104,6 +111,9 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
       }
       val declaredLength = connection.contentLengthLong
       require(declaredLength <= MAX_APK_BYTES) { "El archivo de actualización supera el tamaño permitido." }
+      emitProgress(0, declaredLength, "downloading")
+      var lastReportedPercent = -1
+      var lastReportedAt = System.currentTimeMillis()
       connection.inputStream.use { input ->
         temporary.outputStream().buffered().use { output ->
           val buffer = ByteArray(64 * 1024)
@@ -114,10 +124,19 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
             total += count
             require(total <= MAX_APK_BYTES) { "El archivo de actualización supera el tamaño permitido." }
             output.write(buffer, 0, count)
+            val percent = if (declaredLength > 0) ((total * 100) / declaredLength).toInt().coerceAtMost(99) else -1
+            val now = System.currentTimeMillis()
+            if ((percent >= 0 && percent != lastReportedPercent) || now - lastReportedAt >= 250) {
+              emitProgress(total, declaredLength, "downloading")
+              lastReportedPercent = percent
+              lastReportedAt = now
+            }
           }
+          require(declaredLength <= 0 || total == declaredLength) { "La descarga quedó incompleta." }
         }
       }
       require(isApk(temporary)) { "El archivo descargado no es un APK válido." }
+      emitProgress(temporary.length(), temporary.length(), "downloading")
       require(temporary.renameTo(apk)) { "No se pudo guardar el archivo de actualización." }
       return apk
     } finally {
@@ -133,7 +152,32 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
     }
   }
 
+  private fun emitProgress(downloadedBytes: Long, totalBytes: Long, phase: String) {
+    val progress = createProgressEvent(downloadedBytes, totalBytes, phase)
+    context.runOnUiQueueThread {
+      emitProgressOnUi(progress)
+    }
+  }
+
+  private fun emitProgressOnUi(downloadedBytes: Long, totalBytes: Long, phase: String) {
+    emitProgressOnUi(createProgressEvent(downloadedBytes, totalBytes, phase))
+  }
+
+  private fun createProgressEvent(downloadedBytes: Long, totalBytes: Long, phase: String): WritableMap =
+    Arguments.createMap().apply {
+      putDouble("downloadedBytes", downloadedBytes.toDouble())
+      putDouble("totalBytes", totalBytes.coerceAtLeast(0).toDouble())
+      putInt("percent", if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else -1)
+      putString("phase", phase)
+    }
+
+  private fun emitProgressOnUi(progress: WritableMap) {
+    context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit(PROGRESS_EVENT, progress)
+  }
+
   private fun prepareInstallation(apk: File) {
+    emitProgressOnUi(apk.length(), apk.length(), "installing")
     val activity = context.currentActivity ?: error("Vuelve a CercaGo para continuar con la instalación.")
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
       !context.packageManager.canRequestPackageInstalls()) {
@@ -146,6 +190,17 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
       return
     }
     launchInstaller(activity, apk)
+  }
+
+  private fun emitProgressOnUi(downloadedBytes: Long, totalBytes: Long, phase: String) {
+    val progress = Arguments.createMap().apply {
+      putDouble("downloadedBytes", downloadedBytes.toDouble())
+      putDouble("totalBytes", totalBytes.coerceAtLeast(0).toDouble())
+      putInt("percent", if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else -1)
+      putString("phase", phase)
+    }
+    context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit(PROGRESS_EVENT, progress)
   }
 
   private fun launchInstaller(activity: Activity, apk: File) {
