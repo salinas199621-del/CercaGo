@@ -53,11 +53,12 @@ app.use(helmet({
       "default-src": ["'self'"],
       "base-uri": ["'self'"],
       "font-src": ["'self'", "https:", "data:"],
+      "frame-src": ["'self'"],
       "form-action": ["'self'"],
       "frame-ancestors": ["'self'"],
       "img-src": ["'self'", "data:", "https:"],
       "object-src": ["'none'"],
-      "script-src": ["'self'"],
+      "script-src": ["'self'", "https://unpkg.com"],
       "script-src-attr": ["'none'"],
       "style-src": ["'self'", "https:", "'unsafe-inline'"],
       "connect-src": ["'self'", "https:", "wss:"],
@@ -68,6 +69,7 @@ app.use(cors({ origin: allowClientOrigin }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/auth/password-reset/request", rateLimit({ windowMs: 15 * 60_000, limit: 3, standardHeaders: true, legacyHeaders: false }));
 app.use("/api/auth", rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/location/reverse", rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: true, legacyHeaders: false }));
 app.use("/api", rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));
 app.get("/health", async (_req, res) => {
   try {

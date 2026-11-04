@@ -19,7 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as Location from "../location";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
-import { themeOptions, useAppearance } from "../appearance";
+import { colorOptions, themeOptions, useAppearance } from "../appearance";
 import { Button, Card, Field, Loading, styles } from "../components/UI";
 import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 import { CustomerDrawer, type DrawerItem } from "../components/CustomerDrawer";
@@ -31,7 +31,7 @@ import { LocationPicker } from "../components/LocationPicker";
 import type { LocationCoordinates } from "../components/LocationPickerMap";
 import { OrderChatSheet } from "../components/OrderChatSheet";
 import { formatDualPrice } from "../currency";
-import { defaultPromotions, parsePromotions, promotionStorageKey, promotionsManifestUrl, type Promotion } from "../promotions";
+import { defaultPromotions, parsePromotions, type Promotion } from "../promotions";
 import type { Address, Category, Order, Product, Store } from "../types";
 import { socket } from "./socketRef";
 
@@ -111,10 +111,10 @@ function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
             {ratingValue > 0 ? `★ ${rating}` : rating}
           </Text>
         </View>
-        {store.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: theme.id === "dark" ? "#16865B" : "#23824E", overflow: "hidden", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 10, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
+        {store.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: theme.darkMode ? "#16865B" : "#23824E", overflow: "hidden", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 10, fontSize: 10, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
       </ImageBackground>
       <View style={{ padding: 14, gap: 9 }}>
-        <Text numberOfLines={1} style={{ color: theme.ink, fontSize: 16, fontWeight: "900" }}>{store.name}</Text>
+        <Text numberOfLines={1} style={{ color: theme.ink, fontSize: 15, fontWeight: "900" }}>{store.name}</Text>
         <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
           <Text style={{ color: theme.muted, fontSize: 12 }}>◷ {store.estimated_delivery_minutes ?? 30}–{(store.estimated_delivery_minutes ?? 30) + 10} min</Text>
           <Text style={{ color: fee === 0 ? "#23824E" : theme.muted, fontSize: 12, fontWeight: "800" }}>
@@ -129,7 +129,7 @@ function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
 
 export function CustomerScreen() {
   const { session, signOut, updateProfile, exchangeRate, exchangeRateValueDate, exchangeRateFallback } = useAuth();
-  const { theme, setTheme } = useAppearance();
+  const { theme, darkMode, accentColor, headerColor, setTheme, setDarkMode, setAccentColor, setHeaderColor } = useAppearance();
   const palette = {
     ink: theme.ink,
     muted: theme.muted,
@@ -137,7 +137,7 @@ export function CustomerScreen() {
     brand: theme.primary,
     brandDark: theme.primaryDark,
     background: theme.background,
-    green: theme.id === "dark" ? "#4ADE80" : "#23824E",
+    green: darkMode ? "#4ADE80" : "#23824E",
   };
   const token = session!.token;
   const { width: screenWidth } = useWindowDimensions();
@@ -150,6 +150,7 @@ export function CustomerScreen() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
   const [addressCoordinates, setAddressCoordinates] = useState<LocationCoordinates | null>(null);
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -184,7 +185,6 @@ export function CustomerScreen() {
   const [driverComment, setDriverComment] = useState("");
   const [bannerIndex, setBannerIndex] = useState(0);
   const [promotions, setPromotions] = useState<Promotion[]>(defaultPromotions);
-  const [promotionConfig, setPromotionConfig] = useState(JSON.stringify(defaultPromotions, null, 2));
   const bannerRef = useRef<ScrollViewInstance | null>(null);
   const pageScrollRef = useRef<ScrollViewInstance | null>(null);
   const [storeSectionY, setStoreSectionY] = useState(0);
@@ -239,24 +239,14 @@ export function CustomerScreen() {
     let active = true;
     async function loadPromotions() {
       try {
-        const saved = await AsyncStorage.getItem(promotionStorageKey);
-        if (saved) {
-          const configured = parsePromotions(JSON.parse(saved));
-          if (active) {
-            setPromotions(configured);
-            setPromotionConfig(JSON.stringify(configured, null, 2));
-          }
-          return;
-        }
-        const response = await fetch(promotionsManifestUrl, { cache: "no-store" });
-        if (!response.ok) throw new Error(`La configuración de anuncios respondió HTTP ${response.status}`);
-        const configured = parsePromotions(await response.json() as unknown);
+        const result = await api<{ promotions: Promotion[] | null }>("/promotions");
+        const configured = result.promotions === null ? defaultPromotions : parsePromotions(result.promotions);
         if (active) {
           setPromotions(configured);
-          setPromotionConfig(JSON.stringify(configured, null, 2));
+          setBannerIndex(0);
         }
       } catch (reason) {
-        console.error("No se pudo cargar la configuración de anuncios; se usarán los anuncios integrados.", reason);
+        console.error("No se pudo cargar la configuración de anuncios; se conservarán los anuncios integrados.", reason);
       }
     }
     void loadPromotions();
@@ -332,7 +322,11 @@ export function CustomerScreen() {
     try {
       await api<Order>("/orders", token, {
         method: "POST",
-        body: JSON.stringify({ storeId: selected.id, ...(selectedAddressId ? { addressId: selectedAddressId } : { deliveryAddress: address }), items }),
+        body: JSON.stringify({
+          storeId: selected.id,
+          ...(selectedAddressId ? { addressId: selectedAddressId } : { deliveryAddress: [address, city].filter(Boolean).join(", ") }),
+          items,
+        }),
       });
       setSelected(null);
       setCart({});
@@ -354,7 +348,7 @@ export function CustomerScreen() {
         method: editingAddressId ? "PATCH" : "POST",
         body: JSON.stringify({
           label: addressLabel,
-          addressLine: address,
+          addressLine: [address, city].filter(Boolean).join(", "),
           latitude: addressCoordinates?.latitude ?? null,
           longitude: addressCoordinates?.longitude ?? null,
         }),
@@ -364,6 +358,7 @@ export function CustomerScreen() {
         : [saved, ...current]);
       setSelectedAddressId(saved.id);
       setAddress("");
+      setCity("");
       setAddressCoordinates(null);
       setEditingAddressId("");
       setAddressLabel("Casa");
@@ -425,34 +420,6 @@ export function CustomerScreen() {
       setNotificationsEnabled(next);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar la preferencia");
-    }
-  }
-
-  async function savePromotionConfig() {
-    try {
-      const configured = parsePromotions(JSON.parse(promotionConfig) as unknown);
-      await AsyncStorage.setItem(promotionStorageKey, JSON.stringify(configured));
-      setPromotions(configured);
-      setBannerIndex(0);
-      setSheet(null);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "La configuración de anuncios no es JSON válido.");
-    }
-  }
-
-  async function resetPromotionConfig() {
-    try {
-      await AsyncStorage.removeItem(promotionStorageKey);
-      const response = await fetch(promotionsManifestUrl, { cache: "no-store" });
-      if (!response.ok) throw new Error(`No se pudo cargar el archivo remoto de anuncios (${response.status}).`);
-      const configured = parsePromotions(await response.json() as unknown);
-      setPromotions(configured);
-      setPromotionConfig(JSON.stringify(configured, null, 2));
-      setBannerIndex(0);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "No se pudo restaurar la configuración remota.");
     }
   }
 
@@ -557,47 +524,48 @@ export function CustomerScreen() {
   const deliveryFee = selected?.free_delivery ? 0 : Number(selected?.delivery_fee ?? 2.99);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: !selected ? palette.brand : palette.background }} edges={["top", "bottom"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: !selected ? theme.header : palette.background }} edges={["top", "bottom"]}>
       <View style={{ flex: 1, backgroundColor: palette.background }}>
       <ScrollView ref={pageScrollRef} style={[styles.page, { backgroundColor: palette.background }]} contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: 34 }]} keyboardShouldPersistTaps="handled">
         {!selected && (
           <View style={{
             marginHorizontal: -20, marginTop: -16, marginBottom: 2, paddingHorizontal: 20,
-            paddingTop: 5, paddingBottom: 16, backgroundColor: palette.brand,
-            borderBottomLeftRadius: 24, borderBottomRightRadius: 24, gap: 12,
+            paddingTop: 7, paddingBottom: 14, backgroundColor: theme.header,
+            borderBottomLeftRadius: 22, borderBottomRightRadius: 22, gap: 10,
           }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 44 }}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Abrir menú de navegación"
                 onPress={() => setDrawerVisible(true)}
-                style={{ width: 36, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                style={{ width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: `${theme.headerText}18` }}
               >
-                <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700" }}>☰</Text>
+                <Text style={{ color: theme.headerText, fontSize: 20, fontWeight: "700" }}>☰</Text>
               </Pressable>
-              <CercaGoLogo style={{ width: logoWidth, height: 38, borderRadius: 9, backgroundColor: "#fff" }} />
+              <CercaGoLogo style={{ width: logoWidth, height: 34, borderRadius: 8, backgroundColor: "#fff" }} />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Ver tasa BCV del día"
                   onPress={() => setSheet("rate")}
+                  style={{ minHeight: 44, justifyContent: "center", borderRadius: 12, paddingHorizontal: 5 }}
                 >
-                  <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} fallback={exchangeRateFallback} compact />
+                  <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} fallback={exchangeRateFallback} compact compactTextColor={theme.headerText} />
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Ver pedidos y notificaciones"
                   onPress={() => { setActiveTab("orders"); setSelected(null); setError(""); }}
-                  style={{ width: 34, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                  style={{ width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: `${theme.headerText}18` }}
                 >
-                  <Text style={{ color: "#fff", fontSize: 18 }}>🔔</Text>
+                  <Text style={{ color: theme.headerText, fontSize: 17 }}>🔔</Text>
                   {orders.length > 0 && <View style={{ position: "absolute", right: 5, top: 4, width: 8, height: 8, borderRadius: 5, backgroundColor: "#FF7568" }} />}
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Abrir mi perfil"
                   onPress={() => setSheet("profile")}
-                  style={{ width: 34, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF24" }}
+                  style={{ width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: `${theme.headerText}18` }}
                 >
                   <Avatar value={profileAvatar} name={session!.user.name} size={34} />
                 </Pressable>
@@ -650,7 +618,7 @@ export function CustomerScreen() {
         {activeTab === "orders" ? (
           <>
             <View style={{ gap: 5, marginTop: 6 }}>
-              <Text style={{ color: palette.ink, fontSize: 25, fontWeight: "900" }}>Pedidos y chat</Text>
+              <Text style={{ color: palette.ink, fontSize: 21, fontWeight: "900" }}>Pedidos y chat</Text>
               <Text style={[styles.subtitle, { color: palette.muted }]}>Revisa tus pedidos y conversa con cada comercio.</Text>
             </View>
             <View style={{ backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 10 }}>
@@ -703,7 +671,7 @@ export function CustomerScreen() {
               <ImageBackground source={{ uri: selected.image_url ?? defaultPromotions[0].mediaUrl }} style={{ height: 210, justifyContent: "space-between", padding: 18 }}>
                 {selected.free_delivery === true && <Text style={{ color: "#fff", alignSelf: "flex-start", backgroundColor: palette.green, overflow: "hidden", borderRadius: 20, paddingVertical: 7, paddingHorizontal: 11, fontSize: 11, fontWeight: "900" }}>DELIVERY GRATIS</Text>}
                 <View style={{ backgroundColor: "#151515A8", padding: 14, borderRadius: 16 }}>
-                  <Text style={{ color: "#fff", fontSize: 23, fontWeight: "900" }}>{selected.name}</Text>
+                  <Text style={{ color: "#fff", fontSize: 21, fontWeight: "900" }}>{selected.name}</Text>
                   <Text style={{ color: "#fff", marginTop: 5 }}>{Number(selected.rating ?? 0) > 0 ? `★ ${Number(selected.rating).toFixed(1)}  ·  ` : ""}◷ {selected.estimated_delivery_minutes ?? 30}–{(selected.estimated_delivery_minutes ?? 30) + 10} min  ·  {selected.address}</Text>
                 </View>
               </ImageBackground>
@@ -748,7 +716,7 @@ export function CustomerScreen() {
                 <Pressable key={promo.id} accessibilityRole="button" onPress={() => openPromotion(promo, index)} style={{ width: bannerWidth, height: 190 }}>
                   <PromotionBanner promotion={promo}>
                     <Text style={{ color: "#FFE3A0", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>{promo.tag}</Text>
-                    <Text style={{ color: "#fff", fontSize: 27, fontWeight: "900", marginTop: 8, maxWidth: 280 }}>{promo.title}</Text>
+                    <Text style={{ color: "#fff", fontSize: 20, fontWeight: "900", marginTop: 8, maxWidth: 280 }}>{promo.title}</Text>
                     <Text style={{ color: "#FFFFFFE8", fontSize: 13, marginTop: 5, maxWidth: 280 }}>{promo.body}</Text>
                     <View style={{ alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 99, paddingHorizontal: 13, paddingVertical: 8, marginTop: 14 }}>
                       <Text style={{ color: palette.ink, fontSize: 11, fontWeight: "900" }}>{promo.linkUrl ? "Ver promoción  →" : "Explorar ahora  →"}</Text>
@@ -938,9 +906,24 @@ export function CustomerScreen() {
             {sheet === "settings" && (
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>
                 <Text style={[styles.title, { color: theme.ink }]}>Ajustes</Text>
-                <Text style={[styles.subtitle, { color: theme.muted }]}>Personaliza el aspecto y los anuncios de CercaGo. Los cambios se guardan en este dispositivo.</Text>
+                <Text style={[styles.subtitle, { color: theme.muted }]}>Personaliza el aspecto de CercaGo. Los cambios se guardan en este dispositivo.</Text>
                 <Text style={{ color: theme.ink, fontSize: 15, fontWeight: "900", marginTop: 6 }}>Apariencia</Text>
-                <Text style={{ color: theme.muted, fontSize: 12 }}>Elige los colores que quieres usar en la aplicación.</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 14, borderRadius: 16, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border }}>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ color: theme.ink, fontSize: 14, fontWeight: "800" }}>Modo oscuro</Text>
+                    <Text style={{ color: theme.muted, fontSize: 12 }}>Fondo #121212 y tarjetas #1E1E1E</Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="switch"
+                    accessibilityLabel="Modo oscuro"
+                    accessibilityState={{ checked: darkMode }}
+                    onPress={() => void setDarkMode(!darkMode).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo guardar el modo oscuro."))}
+                    style={{ width: 52, height: 32, borderRadius: 16, padding: 3, justifyContent: "center", backgroundColor: darkMode ? theme.primary : "#C7CDD4" }}
+                  >
+                    <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: "#fff", alignSelf: darkMode ? "flex-end" : "flex-start" }} />
+                  </Pressable>
+                </View>
+                <Text style={{ color: theme.muted, fontSize: 12 }}>Paleta base</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9 }}>
                   {themeOptions.map((option) => (
                     <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: theme.id === option.id }} onPress={() => {
@@ -957,20 +940,26 @@ export function CustomerScreen() {
                     </Pressable>
                   ))}
                 </View>
-                <Text style={{ color: theme.ink, fontSize: 15, fontWeight: "900", marginTop: 8 }}>Anuncios del inicio</Text>
-                <Text style={{ color: theme.muted, fontSize: 12 }}>La configuración local se guarda en este dispositivo; el manifiesto publicado permite actualizar la web sin compilar un APK.</Text>
-                <TextInput
-                  accessibilityLabel="Configuración de anuncios JSON"
-                  value={promotionConfig}
-                  onChangeText={setPromotionConfig}
-                  multiline
-                  autoCapitalize="none"
-                  textAlignVertical="top"
-                  style={{ minHeight: 260, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12, color: theme.ink, backgroundColor: theme.surface, fontFamily: Platform.OS === "web" ? "monospace" : undefined, fontSize: 11 }}
-                />
-                <Text style={{ color: theme.muted, fontSize: 11, lineHeight: 16 }}>Cada anuncio usa id, tag, title, body, mediaType (image o video), mediaUrl HTTPS, tint y linkUrl HTTPS opcional.</Text>
-                <Button title="Guardar anuncios en este dispositivo" onPress={() => void savePromotionConfig()} />
-                <Button title="Restaurar anuncios publicados en la web" secondary onPress={() => void resetPromotionConfig()} />
+                <Text style={{ color: theme.ink, fontSize: 14, fontWeight: "900", marginTop: 6 }}>Color de acento</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  {colorOptions.map((color) => (
+                    <Pressable key={`accent-${color}`} accessibilityRole="button" accessibilityLabel={`Color de acento ${color}`} accessibilityState={{ selected: accentColor.toLowerCase() === color.toLowerCase() }} onPress={() => {
+                      void setAccentColor(color).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo guardar el color de acento."));
+                    }} style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface, borderWidth: accentColor.toLowerCase() === color.toLowerCase() ? 2 : 1, borderColor: accentColor.toLowerCase() === color.toLowerCase() ? theme.ink : theme.border }}>
+                      <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: color }} />
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={{ color: theme.ink, fontSize: 14, fontWeight: "900", marginTop: 6 }}>Color de la barra superior</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  {colorOptions.map((color) => (
+                    <Pressable key={`header-${color}`} accessibilityRole="button" accessibilityLabel={`Color de barra superior ${color}`} accessibilityState={{ selected: headerColor.toLowerCase() === color.toLowerCase() }} onPress={() => {
+                      void setHeaderColor(color).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo guardar el color de la barra."));
+                    }} style={{ width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface, borderWidth: headerColor.toLowerCase() === color.toLowerCase() ? 2 : 1, borderColor: headerColor.toLowerCase() === color.toLowerCase() ? theme.ink : theme.border }}>
+                      <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: color }} />
+                    </Pressable>
+                  ))}
+                </View>
                 <Button title="Cerrar" secondary onPress={() => setSheet(null)} />
               </ScrollView>
             )}
@@ -979,7 +968,7 @@ export function CustomerScreen() {
               <Text style={[styles.subtitle, { color: palette.muted }]}>Administra tus direcciones y elige dónde recibir.</Text>
               {addresses.map((saved) => (
                 <View key={saved.id} style={{ padding: 12, borderRadius: 15, backgroundColor: selectedAddressId === saved.id ? theme.soft : theme.background, gap: 8 }}>
-                  <Pressable onPress={() => { setSelectedAddressId(saved.id); setAddress(""); setSheet(null); }} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Pressable onPress={() => { setSelectedAddressId(saved.id); setAddress(""); setCity(""); setSheet(null); }} style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={{ flex: 1, color: palette.ink, fontWeight: "700" }}>⌂  {saved.label}{saved.is_default ? " · Predeterminada" : ""} · {saved.address_line}</Text>
                     {selectedAddressId === saved.id && <Text style={{ color: palette.orange }}>✓</Text>}
                   </Pressable>
@@ -989,6 +978,7 @@ export function CustomerScreen() {
                       setEditingAddressId(saved.id);
                       setAddressLabel(saved.label);
                       setAddress(saved.address_line);
+                      setCity("");
                       setAddressCoordinates(saved.latitude != null && saved.longitude != null
                         ? { latitude: Number(saved.latitude), longitude: Number(saved.longitude) }
                         : null);
@@ -998,7 +988,8 @@ export function CustomerScreen() {
                 </View>
               ))}
               <TextInput placeholder="Etiqueta (Casa, trabajo…)" placeholderTextColor={theme.muted} value={addressLabel} onChangeText={setAddressLabel} style={{ minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
-              <TextInput placeholder="Calle, número, ciudad" placeholderTextColor={theme.muted} value={address} onChangeText={(value) => { setAddress(value); setAddressCoordinates(null); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
+              <TextInput placeholder="Calle o avenida" placeholderTextColor={theme.muted} value={address} onChangeText={(value) => { setAddress(value); setAddressCoordinates(null); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
+              <TextInput placeholder="Ciudad" placeholderTextColor={theme.muted} value={city} onChangeText={(value) => { setCity(value); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
               <Button title={addressCoordinates ? "Cambiar ubicación en el mapa" : "Agregar ubicación con mapa y GPS"} secondary onPress={() => setLocationPickerVisible(true)} />
               {addressCoordinates && <Text style={{ color: palette.green, fontSize: 11 }}>📍 Coordenadas guardadas: {addressCoordinates.latitude.toFixed(5)}, {addressCoordinates.longitude.toFixed(5)}</Text>}
               {address.trim() && <Button title={editingAddressId ? "Guardar cambios" : "Agregar dirección"} secondary onPress={() => void saveAddress()} />}
@@ -1112,10 +1103,16 @@ export function CustomerScreen() {
       <LocationPicker
         visible={locationPickerVisible}
         initialCoordinates={addressCoordinates}
+        initialAddress={{ street: address, city }}
         onClose={() => setLocationPickerVisible(false)}
-        onSelect={(coordinates, addressLabel) => {
+        onSelect={(coordinates, addressLabel, addressDetails) => {
           setAddressCoordinates(coordinates);
-          if (addressLabel) setAddress(addressLabel);
+          if (addressDetails) {
+            setAddress(addressDetails.street);
+            setCity(addressDetails.city);
+          } else if (addressLabel) {
+            setAddress(addressLabel);
+          }
           setSelectedAddressId("");
         }}
       />

@@ -1,35 +1,88 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Modal, Platform, Pressable, Text, View } from "react-native";
+import { Alert, Modal, Pressable, Text, TextInput, View } from "react-native";
 import * as Location from "../location";
+import { useAppearance } from "../appearance";
+import { api } from "../api";
 import { Button, styles } from "./UI";
 import { LocationPickerMap, type LocationCoordinates } from "./LocationPickerMap";
 
-export function LocationPicker({ visible, initialCoordinates, onClose, onSelect }: {
+type AddressDetails = { street: string; city: string };
+const defaultCoordinates = { latitude: 10.245, longitude: -67.595 };
+
+export function LocationPicker({ visible, initialCoordinates, initialAddress, onClose, onSelect }: {
   visible: boolean;
   initialCoordinates?: LocationCoordinates | null;
+  initialAddress?: AddressDetails;
   onClose: () => void;
-  onSelect: (coordinates: LocationCoordinates, addressLabel?: string) => void;
+  onSelect: (coordinates: LocationCoordinates, addressLabel?: string, addressDetails?: AddressDetails) => void;
 }) {
+  const { theme } = useAppearance();
   const [coordinates, setCoordinates] = useState<LocationCoordinates>(
-    initialCoordinates ?? { latitude: 10.4806, longitude: -66.9036 },
+    initialCoordinates ?? defaultCoordinates,
   );
-  const [tracking, setTracking] = useState(false);
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [locating, setLocating] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [error, setError] = useState("");
-  const subscription = useRef<Location.LocationSubscription | null>(null);
+  const geocodeSequence = useRef(0);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streetEdited = useRef(false);
+  const cityEdited = useRef(false);
 
   useEffect(() => {
-    if (initialCoordinates) setCoordinates(initialCoordinates);
-  }, [initialCoordinates?.latitude, initialCoordinates?.longitude]);
+    if (visible) setCoordinates(initialCoordinates ?? defaultCoordinates);
+  }, [visible, initialCoordinates?.latitude, initialCoordinates?.longitude]);
 
-  useEffect(() => () => subscription.current?.remove(), []);
+  useEffect(() => {
+    if (!visible) return;
+    const initialStreet = initialAddress?.street ?? "";
+    const initialCity = initialAddress?.city ?? "";
+    setStreet(initialStreet);
+    setCity(initialCity);
+    streetEdited.current = Boolean(initialStreet);
+    cityEdited.current = Boolean(initialCity);
+  }, [visible, initialAddress?.street, initialAddress?.city]);
 
-  async function updateCoordinates(next: LocationCoordinates) {
+  useEffect(() => {
+    if (!visible) return;
+    const sequence = ++geocodeSequence.current;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    setGeocoding(true);
+    const geocodeAddress = async () => {
+      try {
+        const result = await api<AddressDetails>(
+          `/location/reverse?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}`,
+        );
+        if (sequence !== geocodeSequence.current) return;
+        if (result.street && !streetEdited.current) setStreet(result.street);
+        if (result.city && !cityEdited.current) setCity(result.city);
+        setError("");
+      } catch (reason) {
+        if (sequence === geocodeSequence.current) {
+          setError("No se pudo completar la dirección automáticamente. Puedes escribirla.");
+          console.error("No se pudo obtener la dirección desde OpenStreetMap", reason);
+        }
+      } finally {
+        if (sequence === geocodeSequence.current) setGeocoding(false);
+      }
+    };
+    const timer = setTimeout(() => void geocodeAddress(), 1200);
+    debounceTimer.current = timer;
+    return () => {
+      ++geocodeSequence.current;
+      clearTimeout(timer);
+    };
+  }, [coordinates.latitude, coordinates.longitude, visible]);
+
+  function updateCoordinates(next: LocationCoordinates) {
     setCoordinates(next);
     setError("");
     onSelect(next);
   }
 
-  async function startTracking() {
+  async function useCurrentLocation() {
+    setLocating(true);
     setError("");
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
@@ -37,68 +90,71 @@ export function LocationPicker({ visible, initialCoordinates, onClose, onSelect 
         throw new Error("Debes permitir el acceso a la ubicación para usar el GPS.");
       }
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      await updateCoordinates(current.coords);
-      subscription.current?.remove();
-      subscription.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
-        (position) => { void updateCoordinates(position.coords); },
-        (reason) => setError(reason.message),
-      );
-      setTracking(true);
+      updateCoordinates(current.coords);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "No se pudo obtener tu ubicación");
+      const message = reason instanceof Error ? reason.message : "No se pudo obtener tu ubicación";
+      setError(message);
+      Alert.alert("Ubicación no disponible", message);
+    } finally {
+      setLocating(false);
     }
   }
 
-  function stopTracking() {
-    subscription.current?.remove();
-    subscription.current = null;
-    setTracking(false);
-  }
-
-  function close() {
-    stopTracking();
+  function confirmLocation() {
+    const addressLine = [street.trim(), city.trim()].filter(Boolean).join(", ");
+    onSelect(coordinates, addressLine, { street: street.trim(), city: city.trim() });
     onClose();
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "#15192366" }}>
-        <Pressable onPress={close} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
-        <View style={{ width: "100%", maxWidth: 620, maxHeight: "92%", alignSelf: "center", backgroundColor: "#fff", borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18, gap: 12 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <View>
-              <Text style={styles.title}>Ubicación de entrega</Text>
-              <Text style={styles.subtitle}>El punto del mapa se guarda con tu dirección.</Text>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "#15192388" }}>
+        <Pressable onPress={onClose} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
+        <View style={{ width: "100%", maxWidth: 620, maxHeight: "94%", alignSelf: "center", backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, gap: 12 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={[styles.title, { color: theme.ink }]}>Fija tu dirección en el mapa</Text>
+              <Text style={[styles.subtitle, { color: theme.muted }]}>Mueve el pin o toca el punto exacto en el mapa.</Text>
             </View>
-            <Pressable onPress={close} accessibilityRole="button"><Text style={{ color: "#777D89", fontSize: 24 }}>×</Text></Pressable>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Cerrar mapa" hitSlop={10}>
+              <Text style={{ color: theme.muted, fontSize: 24 }}>×</Text>
+            </Pressable>
           </View>
-          <LocationPickerMap coordinates={coordinates} onSelect={(next) => void updateCoordinates(next)} />
-          <Text style={{ color: "#667085", fontSize: 11 }}>
-            {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
-            {tracking ? " · GPS activo" : ""}
-          </Text>
+          <LocationPickerMap coordinates={coordinates} onSelect={updateCoordinates} />
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <Text style={{ flex: 1, color: theme.muted, fontSize: 11, lineHeight: 16 }}>
+              {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)} · © OpenStreetMap
+            </Text>
+            <Pressable accessibilityRole="button" disabled={locating} onPress={() => void useCurrentLocation()} style={{
+              minHeight: 42, borderRadius: 12, paddingHorizontal: 12, justifyContent: "center",
+              backgroundColor: theme.soft, opacity: locating ? 0.6 : 1,
+            }}>
+              <Text style={{ color: theme.primaryDark, fontSize: 12, fontWeight: "800" }}>
+                {locating ? "Buscando GPS…" : "Usar mi ubicación actual"}
+              </Text>
+            </Pressable>
+          </View>
+          <TextInput
+            accessibilityLabel="Calle o avenida"
+            placeholder="Calle o avenida"
+            placeholderTextColor={theme.muted}
+            value={street}
+            onChangeText={(value) => { streetEdited.current = true; setStreet(value); }}
+            style={{ minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 13, color: theme.ink, backgroundColor: theme.background }}
+          />
+          <TextInput
+            accessibilityLabel="Ciudad"
+            placeholder="Ciudad"
+            placeholderTextColor={theme.muted}
+            value={city}
+            onChangeText={(value) => { cityEdited.current = true; setCity(value); }}
+            style={{ minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 13, color: theme.ink, backgroundColor: theme.background }}
+          />
+          {geocoding && <Text style={{ color: theme.muted, fontSize: 12 }}>Buscando calle y ciudad…</Text>}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <View style={{ flex: 1 }}>
-              <Button title={tracking ? "Detener GPS" : "Rastrear mi ubicación"} secondary onPress={() => tracking ? stopTracking() : void startTracking()} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button title="Usar esta ubicación" onPress={() => { onSelect(coordinates); close(); }} />
-            </View>
-          </View>
-          {PlatformNotice()}
+          <Button title="Usar esta ubicación" onPress={confirmLocation} />
         </View>
       </View>
     </Modal>
-  );
-}
-
-function PlatformNotice() {
-  if (Platform.OS !== "web" || typeof window === "undefined" || window.isSecureContext !== false) return null;
-  return (
-    <Text style={{ color: "#777D89", fontSize: 11, lineHeight: 16 }}>
-      En el navegador, el GPS requiere HTTPS. Abre CercaGo desde la página segura para usar la ubicación.
-    </Text>
   );
 }

@@ -1,5 +1,3 @@
-import { Platform } from "react-native";
-
 export type Promotion = {
   id: string;
   tag: string;
@@ -10,15 +8,6 @@ export type Promotion = {
   linkUrl?: string;
   tint: string;
 };
-
-export const promotionStorageKey = "cercago-promotions-v1";
-const publishedPromotionsManifestUrl = "https://salinas199621-del.github.io/CercaGo/promotions.json";
-export const promotionsManifestUrl =
-  Platform.OS === "web" &&
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-    ? new URL("promotions.json", window.location.href).toString()
-    : publishedPromotionsManifestUrl;
 
 export const defaultPromotions: Promotion[] = [
   {

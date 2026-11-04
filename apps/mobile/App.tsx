@@ -14,7 +14,7 @@ import { HomeSplash } from "./src/components/HomeSplash";
 import { AppearanceProvider, useAppearance } from "./src/appearance";
 
 const Stack = createNativeStackNavigator();
-const CURRENT_APP_VERSION = "1.0.7";
+const CURRENT_APP_VERSION = "1.0.8";
 const VERSION_MANIFEST_URL = "https://salinas199621-del.github.io/CercaGo/app-version.json";
 
 function getVersionManifestUrl() {
@@ -56,7 +56,7 @@ function AdminNotice() {
 
 function RootNavigator() {
   const { session, loading, signOut, exchangeRate, exchangeRateValueDate } = useAuth();
-  const { theme } = useAppearance();
+  const { theme, darkMode } = useAppearance();
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [onboardingLoaded, setOnboardingLoaded] = useState(false);
   const [startupSplashDone, setStartupSplashDone] = useState(false);
@@ -165,7 +165,9 @@ function RootNavigator() {
           />
         )}
       </Stack.Navigator>
-      <StatusBar barStyle={theme.id === "dark" || session?.user.role === "customer" ? "light-content" : "dark-content"} />
+      <StatusBar barStyle={session?.user.role === "customer"
+        ? theme.headerText === "#FFFFFF" ? "light-content" : "dark-content"
+        : darkMode ? "light-content" : "dark-content"} />
     </NavigationContainer>
   );
 }

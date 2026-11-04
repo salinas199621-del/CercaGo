@@ -27,9 +27,9 @@ La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y 
 
 ## Banners y actualizaciones de la app
 
-Los anuncios del Home se definen en `apps/mobile/public/promotions.json`. Cada entrada admite `mediaType` (`image` o `video`), una URL HTTPS en `mediaUrl`, texto, color `tint` y un `linkUrl` HTTPS opcional. En web, los videos usan HTML5 con reproducción automática silenciada. La app obtiene el manifiesto publicado y permite guardar una configuración local desde **Menú → Ajustes**; actualizar el JSON publicado no requiere reinstalar el APK.
+Los anuncios del Home se administran desde **Panel de administración → Anuncios** y se guardan en la API. Cada entrada admite imágenes/GIF o video, una URL HTTPS, texto, color y un enlace HTTPS opcional. El cliente carga la configuración del servidor; los videos se reproducen silenciados en web y Android. Los anuncios ya no aparecen en los ajustes del cliente.
 
-`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. Cuando se publique una nueva versión nativa, actualiza este manifiesto después de publicar el APK. La web puede recargarse para recibir nuevos archivos; Android abre la descarga y requiere la confirmación de instalación del APK. No se borran los datos de sesión.
+`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión fuente preparada es 1.0.8 (Android `versionCode` 9); publica el APK de esa versión y luego el manifiesto para activar el aviso en instalaciones anteriores. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
 
 Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
 
@@ -87,7 +87,7 @@ El API corre en `http://localhost:4000`; la web móvil y el panel en `http://loc
 
 El chat y los pedidos requieren API, PostgreSQL y Socket.IO activos. El chat consulta mensajes periódicamente como respaldo si la conexión en tiempo real se interrumpe.
 
-Las direcciones pueden guardar coordenadas mediante GPS. En el teléfono, el navegador requiere HTTPS para conceder ubicación; para probar en una red local HTTP usa una app nativa o abre la versión web publicada por HTTPS. El mapa web usa OpenStreetMap; el mapa nativo de Android está pendiente de configuración.
+El formulario de direcciones incluye un mapa OpenStreetMap para web y Android, selección de punto/pin, GPS y geocodificación inversa a calle y ciudad. La consulta de ubicación se procesa mediante el API y Nominatim, con limitación de solicitudes. En el teléfono, el navegador requiere HTTPS para conceder ubicación; para probar en una red local HTTP usa una app nativa o abre la versión web publicada por HTTPS.
 
 Los repartidores comparten su ubicación mientras la app está activa; el API limita las ofertas a un radio configurable por `app_settings.delivery_zone_radius_km` (15 km por defecto). El comercio debe configurar latitud y longitud para publicar pedidos listos. La app móvil usa URL de imagen para los productos; configure almacenamiento de objetos/CDN antes de producción.
 

@@ -14,6 +14,19 @@ import type { AuthRequest } from "./types";
 const router = Router();
 const googleOAuthClient = new OAuth2Client();
 const passwordSchema = z.string().min(10).refine((value) => Buffer.byteLength(value, "utf8") <= 72, "La contraseña no puede superar 72 bytes");
+const promotionSchema = z.array(z.object({
+  id: z.string().trim().min(1).max(100),
+  tag: z.string().trim().max(60),
+  title: z.string().trim().max(100),
+  body: z.string().trim().max(200),
+  mediaType: z.enum(["image", "video"]),
+  mediaUrl: z.string().url().refine((value) => value.startsWith("https://"), "El medio debe usar HTTPS"),
+  linkUrl: z.string().url().refine((value) => value.startsWith("https://"), "El enlace debe usar HTTPS").optional(),
+  tint: z.string().regex(/^#[\da-f]{6}$/i),
+})).max(20);
+let reverseGeocodeQueue = Promise.resolve();
+let lastReverseGeocodeAt = 0;
+const reverseGeocodeCache = new Map<string, { street: string; city: string }>();
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(255),
@@ -406,6 +419,68 @@ router.get("/exchange-rate", asyncHandler(async (_req, res) => {
     return res.status(503).json({ error: "La tasa BCV aún no está disponible. Intenta de nuevo en unos segundos." });
   }
   return res.json({ ...rows[0], rate });
+}));
+
+router.get("/promotions", asyncHandler(async (_req, res) => {
+  const { rows } = await pool.query("SELECT value FROM app_settings WHERE key = 'promotions'");
+  return res.json({ promotions: rows[0]?.value ?? null });
+}));
+
+router.get("/location/reverse", asyncHandler(async (req, res) => {
+  const { latitude, longitude } = z.object({
+    latitude: z.coerce.number().min(-90).max(90),
+    longitude: z.coerce.number().min(-180).max(180),
+  }).parse(req.query);
+  const cacheKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+  const cached = reverseGeocodeCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const previousRequest = reverseGeocodeQueue;
+  let releaseRequest: () => void = () => undefined;
+  reverseGeocodeQueue = new Promise((resolve) => { releaseRequest = resolve; });
+  await previousRequest;
+  try {
+    const queuedCache = reverseGeocodeCache.get(cacheKey);
+    if (queuedCache) return res.json(queuedCache);
+    const wait = Math.max(0, 1100 - (Date.now() - lastReverseGeocodeAt));
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    lastReverseGeocodeAt = Date.now();
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("zoom", "18");
+    url.searchParams.set("lat", String(latitude));
+    url.searchParams.set("lon", String(longitude));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { "Accept-Language": "es", "User-Agent": "CercaGo/1.0.8 (delivery address picker)" },
+      });
+      if (!response.ok) throw Object.assign(new Error(`OpenStreetMap respondió HTTP ${response.status}`), { status: 503 });
+      const result = await response.json() as { address?: Record<string, unknown> };
+      const address = result.address;
+      const street = [address?.road, address?.pedestrian, address?.footway, address?.residential]
+        .find((value) => typeof value === "string" && value.trim()) as string | undefined;
+      const city = [address?.city, address?.town, address?.village, address?.municipality]
+        .find((value) => typeof value === "string" && value.trim()) as string | undefined;
+      const resolved = {
+        street: [street?.trim(), typeof address?.house_number === "string" ? address.house_number : undefined].filter(Boolean).join(" "),
+        city: city?.trim() ?? "",
+      };
+      reverseGeocodeCache.set(cacheKey, resolved);
+      if (reverseGeocodeCache.size > 500) {
+        const oldestCacheKey = reverseGeocodeCache.keys().next().value;
+        if (oldestCacheKey !== undefined) reverseGeocodeCache.delete(oldestCacheKey);
+      }
+      return res.json(resolved);
+    } finally {
+      clearTimeout(timeout);
+    }
+  } finally {
+    releaseRequest();
+  }
 }));
 
 router.get("/stores", asyncHandler(async (req, res) => {
@@ -1152,6 +1227,21 @@ router.get("/admin/metrics", authenticate, allowRoles("admin"), asyncHandler(asy
 router.get("/admin/settings/commission", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {
   const { rows } = await pool.query("SELECT value #>> '{}' AS rate FROM app_settings WHERE key = 'default_commission_rate'");
   return res.json({ rate: Number(rows[0]?.rate ?? 10) });
+}));
+
+router.get("/admin/promotions", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {
+  const { rows } = await pool.query("SELECT value FROM app_settings WHERE key = 'promotions'");
+  return res.json({ promotions: rows[0]?.value ?? null });
+}));
+
+router.put("/admin/promotions", authenticate, allowRoles("admin"), asyncHandler(async (req, res) => {
+  const promotions = promotionSchema.parse(req.body.promotions);
+  await pool.query(
+    `INSERT INTO app_settings(key, value, updated_at) VALUES('promotions', $1::jsonb, NOW())
+     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [JSON.stringify(promotions)],
+  );
+  return res.json({ promotions });
 }));
 
 router.get("/admin/stores", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {

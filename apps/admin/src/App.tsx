@@ -5,9 +5,16 @@ const API = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 type User = { id: string; name: string; email: string; role: string; active: boolean };
 type Store = { id: string; name: string; address: string; owner_name: string; owner_email: string; approved: boolean; active: boolean; commission_rate: number; is_demo: boolean };
 type StoreUpdate = { approved?: boolean; active?: boolean; commissionRate?: number };
+type Promotion = { id: string; tag: string; title: string; body: string; mediaType: "image" | "video"; mediaUrl: string; linkUrl?: string; tint: string };
 type Metrics = { users: Array<{ role: string; count: number }>; stores: { total: number; approved: number }; orders: Array<{ status: string; count: number }>; sales: { gross_sales: string; order_count: number } };
 type ExchangeRate = { rate: number; source: "BCV"; valueDate: string; updatedAt: string };
 type RecoveryStage = "login" | "request" | "confirm";
+
+const defaultPromotions: Promotion[] = [
+  { id: "local-favorites", tag: "FAVORITOS DEL BARRIO", title: "Lo rico llega rápido", body: "Descubre algo nuevo a la vuelta de la esquina.", mediaType: "image", mediaUrl: "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1200&q=85", tint: "#351A13" },
+  { id: "coffee-break", tag: "UNA PAUSA QUE TE MERECES", title: "Café y algo dulce", body: "Tu tarde acaba de mejorar. Desde $3.50.", mediaType: "image", mediaUrl: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=85", tint: "#332014" },
+  { id: "fresh-market", tag: "CERCA, FRESCO, LOCAL", title: "El mercado va a ti", body: "Llena tu cocina con productos frescos.", mediaType: "image", mediaUrl: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=85", tint: "#183324" },
+];
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
@@ -33,6 +40,7 @@ export default function App() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>(defaultPromotions);
   const [commission, setCommission] = useState("10");
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [exchangeRateError, setExchangeRateError] = useState("");
@@ -51,16 +59,18 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      const [nextMetrics, nextStores, nextUsers, setting] = await Promise.all([
+      const [nextMetrics, nextStores, nextUsers, setting, promotionSetting] = await Promise.all([
         request<Metrics>("/admin/metrics", token),
         request<Store[]>("/admin/stores", token),
         request<User[]>("/admin/users", token),
         request<{ rate: number }>("/admin/settings/commission", token),
+        request<{ promotions: Promotion[] | null }>("/admin/promotions", token),
       ]);
       setMetrics(nextMetrics);
       setStores(nextStores);
       setUsers(nextUsers);
       setCommission(String(setting.rate));
+      setPromotions(promotionSetting.promotions ?? defaultPromotions);
       try {
         setExchangeRate(await request<ExchangeRate>("/exchange-rate", token));
         setExchangeRateError("");
@@ -210,6 +220,44 @@ export default function App() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la comisión"); }
   }
 
+  function addPromotion() {
+    if (promotions.length >= 20) {
+      setError("Puedes configurar hasta 20 anuncios.");
+      return;
+    }
+    setPromotions((current) => [...current, {
+      id: crypto.randomUUID(),
+      tag: "NUEVO ANUNCIO",
+      title: "",
+      body: "",
+      mediaType: "image",
+      mediaUrl: "",
+      linkUrl: "",
+      tint: "#183324",
+    }]);
+  }
+
+  function updatePromotion(id: string, update: Partial<Promotion>) {
+    setPromotions((current) => current.map((promotion) =>
+      promotion.id === id ? { ...promotion, ...update } : promotion));
+  }
+
+  async function savePromotions() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await request<{ promotions: Promotion[] }>("/admin/promotions", token, {
+        method: "PUT",
+        body: JSON.stringify({ promotions }),
+      });
+      setPromotions(result.promotions);
+      setNotice("Anuncios guardados. Se mostrarán en el inicio de la app sin actualizar el APK.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudieron guardar los anuncios.");
+    } finally { setBusy(false); }
+  }
+
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setPasswordMessage("");
@@ -332,6 +380,38 @@ export default function App() {
         </div>
         <button disabled={busy} onClick={() => void refreshExchangeRate()}>{busy ? "Consultando…" : "Actualizar desde BCV"}</button>
         {exchangeRateError && <p role="status" className="muted">{exchangeRateError}</p>}
+      </section>
+      <section className="panel">
+        <div className="section-heading">
+          <div><h2>Anuncios del inicio</h2><p className="muted">Administra imágenes, GIF y videos que aparecen en el carrusel de CercaGo.</p></div>
+          <button type="button" className="outline" disabled={busy || promotions.length >= 20} onClick={addPromotion}>Agregar anuncio</button>
+        </div>
+        <p className="muted">Usa enlaces HTTPS directos. Los videos se reproducen automáticamente, en bucle y sin sonido. Máximo 20 anuncios.</p>
+        {promotions.map((promotion, index) => (
+          <article className="promotion-editor" key={promotion.id}>
+            <div className="promotion-heading">
+              <strong>Anuncio {index + 1}</strong>
+              <button type="button" className="small delete" disabled={busy} onClick={() => setPromotions((current) => current.filter((item) => item.id !== promotion.id))}>Quitar</button>
+            </div>
+            <div className="promotion-fields">
+              <label>Etiqueta<input maxLength={60} value={promotion.tag} onChange={(event) => updatePromotion(promotion.id, { tag: event.target.value })} /></label>
+              <label>Título<input maxLength={100} value={promotion.title} onChange={(event) => updatePromotion(promotion.id, { title: event.target.value })} /></label>
+              <label>Descripción<input maxLength={200} value={promotion.body} onChange={(event) => updatePromotion(promotion.id, { body: event.target.value })} /></label>
+              <label>Tipo de medio<select value={promotion.mediaType} onChange={(event) => updatePromotion(promotion.id, { mediaType: event.target.value as Promotion["mediaType"] })}><option value="image">Imagen o GIF</option><option value="video">Video</option></select></label>
+              <label>URL directa de imagen/GIF/video<input type="url" inputMode="url" placeholder="https://…" value={promotion.mediaUrl} onChange={(event) => updatePromotion(promotion.id, { mediaUrl: event.target.value })} required /></label>
+              <label>Enlace de destino (opcional)<input type="url" inputMode="url" placeholder="https://…" value={promotion.linkUrl ?? ""} onChange={(event) => updatePromotion(promotion.id, { linkUrl: event.target.value })} /></label>
+              <label className="tint-field">Color de sombra<input type="color" value={promotion.tint} onChange={(event) => updatePromotion(promotion.id, { tint: event.target.value })} /></label>
+            </div>
+            {promotion.mediaUrl.startsWith("https://") && (
+              <div className="promotion-preview">
+                {promotion.mediaType === "video"
+                  ? <video src={promotion.mediaUrl} autoPlay loop muted playsInline />
+                  : <img src={promotion.mediaUrl} alt={`Vista previa de ${promotion.title || "anuncio"}`} />}
+              </div>
+            )}
+          </article>
+        ))}
+        <button disabled={busy} onClick={() => void savePromotions()}>{busy ? "Guardando…" : "Guardar anuncios"}</button>
       </section>
       <section className="panel">
         <div className="section-heading">

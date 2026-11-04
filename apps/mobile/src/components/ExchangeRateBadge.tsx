@@ -1,11 +1,12 @@
 import React from "react";
 import { Text, View } from "react-native";
 
-export function ExchangeRateBadge({ rate, valueDate, fallback = false, compact = false }: {
+export function ExchangeRateBadge({ rate, valueDate, fallback = false, compact = false, compactTextColor = "#fff" }: {
   rate: number | null;
   valueDate?: string | null;
   fallback?: boolean;
   compact?: boolean;
+  compactTextColor?: string;
 }) {
   const formattedRate = rate == null
     ? null
@@ -20,8 +21,8 @@ export function ExchangeRateBadge({ rate, valueDate, fallback = false, compact =
   if (compact) {
     return (
       <View style={{ minHeight: 40, backgroundColor: "#FFFFFF24", borderRadius: 13, paddingHorizontal: 9, paddingVertical: 5, justifyContent: "center", gap: 2 }}>
-        <Text style={{ color: "#D8FFFA", fontSize: 8, fontWeight: "900", letterSpacing: 0.4 }}>BCV · USD</Text>
-        <Text numberOfLines={1} style={{ color: "#fff", fontSize: 11, fontWeight: "900" }}>
+        <Text style={{ color: compactTextColor, opacity: 0.8, fontSize: 8, fontWeight: "900", letterSpacing: 0.4 }}>BCV · USD</Text>
+        <Text numberOfLines={1} style={{ color: compactTextColor, fontSize: 11, fontWeight: "900" }}>
           {formattedRate ? `Bs. ${formattedRate}` : "No disponible"}
         </Text>
       </View>
