@@ -995,7 +995,7 @@ export function CustomerScreen() {
           <View style={{ width: "100%", maxWidth: 560, maxHeight: "82%", alignSelf: "center", backgroundColor: theme.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 30, gap: 12 }}>
             <View style={{ width: 42, height: 4, borderRadius: 3, backgroundColor: "#D9DCE2", alignSelf: "center", marginBottom: 4 }} />
             {sheet === "profile" && (
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
+              <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
                 <View style={{ alignItems: "center", gap: 6, paddingVertical: 8 }}>
                   <Avatar value={profileAvatar} name={session!.user.name} size={76} style={{ borderWidth: 5, borderColor: theme.soft }} />
                   <Text style={[styles.title, { textAlign: "center", color: palette.ink }]}>Mi perfil</Text>
@@ -1128,7 +1128,7 @@ export function CustomerScreen() {
               <Button title="Listo" onPress={() => setSheet(null)} />
             </>}
             {sheet === "settings" && (
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>
+              <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>
                 <Text style={[styles.title, { color: theme.ink }]}>Ajustes</Text>
                 <Text style={[styles.subtitle, { color: theme.muted }]}>Personaliza el aspecto de CercaGo. Los cambios se guardan en este dispositivo.</Text>
                 <Text style={{ color: theme.ink, fontSize: 15, fontWeight: "900", marginTop: 6 }}>Apariencia</Text>
@@ -1187,38 +1187,48 @@ export function CustomerScreen() {
                 <Button title="Cerrar" secondary onPress={() => setSheet(null)} />
               </ScrollView>
             )}
-            {sheet === "location" && <>
-              <Text style={[styles.title, { color: palette.ink }]}>Mis direcciones</Text>
-              <Text style={[styles.subtitle, { color: palette.muted }]}>Administra tus direcciones y elige dónde recibir.</Text>
-              {addresses.map((saved) => (
-                <View key={saved.id} style={{ padding: 12, borderRadius: 15, backgroundColor: selectedAddressId === saved.id ? theme.soft : theme.background, gap: 8 }}>
-                  <Pressable onPress={() => { setSelectedAddressId(saved.id); setAddress(""); setCity(""); setSheet(null); }} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={{ flex: 1, color: palette.ink, fontWeight: "700" }}>⌂  {saved.label}{saved.is_default ? " · Predeterminada" : ""} · {saved.address_line}</Text>
-                    {selectedAddressId === saved.id && <Text style={{ color: palette.orange }}>✓</Text>}
-                  </Pressable>
-                  <View style={{ flexDirection: "row", gap: 16 }}>
-                    {!saved.is_default && <Pressable onPress={() => void setDefaultAddress(saved)}><Text style={{ color: palette.green, fontSize: 12, fontWeight: "800" }}>Hacer predeterminada</Text></Pressable>}
-                    <Pressable onPress={() => {
-                      setEditingAddressId(saved.id);
-                      setAddressLabel(saved.label);
-                      setAddress(saved.address_line);
-                      setCity("");
-                      setAddressCoordinates(saved.latitude != null && saved.longitude != null
-                        ? { latitude: Number(saved.latitude), longitude: Number(saved.longitude) }
-                        : null);
-                    }}><Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>Editar</Text></Pressable>
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${saved.label}`} onPress={() => setDeleteAddressCandidate(saved)}><Trash2 size={17} color="#B42318" /></Pressable>
+            {sheet === "location" && (
+              <ScrollView
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={[styles.title, { color: palette.ink }]}>Mis direcciones</Text>
+                <Text style={[styles.subtitle, { color: palette.muted }]}>Administra tus direcciones y elige dónde recibir.</Text>
+                {addresses.map((saved) => (
+                  <View key={saved.id} style={{ padding: 12, borderRadius: 15, backgroundColor: selectedAddressId === saved.id ? theme.soft : theme.background, gap: 8 }}>
+                    <Pressable onPress={() => { setSelectedAddressId(saved.id); setAddress(""); setCity(""); setSheet(null); }} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                      <Text style={{ flex: 1, color: palette.ink, fontWeight: "700" }}>⌂  {saved.label}{saved.is_default ? " · Predeterminada" : ""} · {saved.address_line}</Text>
+                      {selectedAddressId === saved.id && <Text style={{ color: palette.orange }}>✓</Text>}
+                    </Pressable>
+                    <View style={{ flexDirection: "row", gap: 16 }}>
+                      {!saved.is_default && <Pressable onPress={() => void setDefaultAddress(saved)}><Text style={{ color: palette.green, fontSize: 12, fontWeight: "800" }}>Hacer predeterminada</Text></Pressable>}
+                      <Pressable onPress={() => {
+                        setEditingAddressId(saved.id);
+                        setAddressLabel(saved.label);
+                        setAddress(saved.address_line);
+                        setCity("");
+                        setAddressCoordinates(saved.latitude != null && saved.longitude != null
+                          ? { latitude: Number(saved.latitude), longitude: Number(saved.longitude) }
+                          : null);
+                      }}><Text style={{ color: palette.orange, fontSize: 12, fontWeight: "800" }}>Editar</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${saved.label}`} onPress={() => setDeleteAddressCandidate(saved)}><Trash2 size={17} color="#B42318" /></Pressable>
+                    </View>
                   </View>
-                </View>
-              ))}
-              <TextInput placeholder="Etiqueta (Casa, trabajo…)" placeholderTextColor={theme.muted} value={addressLabel} onChangeText={setAddressLabel} style={{ minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
-              <TextInput placeholder="Calle o avenida" placeholderTextColor={theme.muted} value={address} onChangeText={(value) => { setAddress(value); setAddressCoordinates(null); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
-              <TextInput placeholder="Ciudad" placeholderTextColor={theme.muted} value={city} onChangeText={(value) => { setCity(value); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
-              <Button title={addressCoordinates ? "Cambiar ubicación en el mapa" : "Agregar ubicación con mapa y GPS"} secondary onPress={() => setLocationPickerVisible(true)} />
-              {addressCoordinates && <Text style={{ color: palette.green, fontSize: 11 }}>Coordenadas guardadas: {addressCoordinates.latitude.toFixed(5)}, {addressCoordinates.longitude.toFixed(5)}</Text>}
-              {address.trim() && <Button title={editingAddressId ? "Guardar cambios" : "Agregar dirección"} secondary onPress={() => void saveAddress()} />}
-              <Button title="Listo" onPress={() => setSheet(null)} />
-            </>}
+                ))}
+                <TextInput placeholder="Etiqueta (Casa, trabajo…)" placeholderTextColor={theme.muted} value={addressLabel} onChangeText={setAddressLabel} style={{ minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
+                <TextInput placeholder="Calle o avenida" placeholderTextColor={theme.muted} value={address} onChangeText={(value) => { setAddress(value); setAddressCoordinates(null); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
+                <TextInput placeholder="Ciudad" placeholderTextColor={theme.muted} value={city} onChangeText={(value) => { setCity(value); setSelectedAddressId(""); }} style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, color: theme.ink, backgroundColor: theme.surface }} />
+                <Button title={addressCoordinates ? "Cambiar ubicación en el mapa" : "Agregar ubicación con mapa y GPS"} secondary onPress={() => {
+                  setSheet(null);
+                  setLocationPickerVisible(true);
+                }} />
+                {addressCoordinates && <Text style={{ color: palette.green, fontSize: 11 }}>Coordenadas guardadas: {addressCoordinates.latitude.toFixed(5)}, {addressCoordinates.longitude.toFixed(5)}</Text>}
+                {address.trim() && <Button title={editingAddressId ? "Guardar cambios" : "Agregar dirección"} secondary onPress={() => void saveAddress()} />}
+                <Button title="Listo" onPress={() => setSheet(null)} />
+              </ScrollView>
+            )}
             {sheet === "cart" && <>
               <Text style={[styles.title, { color: palette.ink }]}>Tu pedido</Text>
               <Text style={[styles.subtitle, { color: palette.muted }]}>{selected?.name ?? "Tu bolsa CercaGo"}</Text>
@@ -1354,7 +1364,10 @@ export function CustomerScreen() {
         visible={locationPickerVisible}
         initialCoordinates={addressCoordinates}
         initialAddress={{ street: address, city }}
-        onClose={() => setLocationPickerVisible(false)}
+        onClose={() => {
+          setLocationPickerVisible(false);
+          setSheet("location");
+        }}
         onSelect={(coordinates, addressLabel, addressDetails) => {
           setAddressCoordinates(coordinates);
           if (addressDetails) {

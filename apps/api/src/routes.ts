@@ -463,7 +463,17 @@ router.get("/location/reverse", asyncHandler(async (req, res) => {
       const address = result.address;
       const street = [address?.road, address?.pedestrian, address?.footway, address?.residential]
         .find((value) => typeof value === "string" && value.trim()) as string | undefined;
-      const city = [address?.city, address?.town, address?.village, address?.municipality]
+      const city = [
+        address?.city,
+        address?.town,
+        address?.village,
+        address?.municipality,
+        address?.city_district,
+        address?.borough,
+        address?.county,
+        address?.state_district,
+        address?.state,
+      ]
         .find((value) => typeof value === "string" && value.trim()) as string | undefined;
       const resolved = {
         street: [street?.trim(), typeof address?.house_number === "string" ? address.house_number : undefined].filter(Boolean).join(" "),

@@ -29,7 +29,7 @@ La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y 
 
 Los anuncios del Home se administran desde **Panel de administración → Anuncios** y se guardan en la API. Cada entrada admite imágenes/GIF o video, una URL HTTPS, texto, color y un enlace HTTPS opcional. El cliente carga la configuración del servidor; los videos se reproducen silenciados en web y Android. Los anuncios ya no aparecen en los ajustes del cliente.
 
-`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La última versión publicada es 1.1.0 (Android `versionCode` 11). Android requiere confirmar la instalación del APK y conserva los datos de sesión.
+`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión 1.1.1 (Android `versionCode` 12) incluye correcciones del selector GPS y de los paneles de perfil y direcciones. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
 
 Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
 

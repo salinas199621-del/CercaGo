@@ -47,9 +47,10 @@ function createMapHtml(initial: LocationCoordinates) {
 </html>`;
 }
 
-export function LocationPickerMap({ coordinates, onSelect }: {
+export function LocationPickerMap({ coordinates, onSelect, mapHeight = 300 }: {
   coordinates: LocationCoordinates;
   onSelect: (coordinates: LocationCoordinates) => void;
+  mapHeight?: number;
 }) {
   const webView = useRef<WebView<{}>>(null);
   const [html] = useState(() => createMapHtml(coordinates));
@@ -73,7 +74,7 @@ export function LocationPickerMap({ coordinates, onSelect }: {
   }
 
   return (
-    <View style={{ height: 300, width: "100%", borderRadius: 16, overflow: "hidden", backgroundColor: "#E8ECEF" }}>
+    <View style={{ height: mapHeight, width: "100%", borderRadius: 16, overflow: "hidden", backgroundColor: "#E8ECEF" }}>
       <WebView<{}>
         ref={webView}
         source={{ html }}
