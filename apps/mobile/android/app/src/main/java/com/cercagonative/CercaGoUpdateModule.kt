@@ -134,7 +134,7 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
   }
 
   private fun prepareInstallation(apk: File) {
-    val activity = currentActivity ?: error("Vuelve a CercaGo para continuar con la instalación.")
+    val activity = context.currentActivity ?: error("Vuelve a CercaGo para continuar con la instalación.")
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
       !context.packageManager.canRequestPackageInstalls()) {
       permissionApk = apk
@@ -189,7 +189,7 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
     }
   }
 
-  override fun onNewIntent(intent: Intent?) = Unit
+  override fun onNewIntent(intent: Intent) = Unit
 
   private fun finishWithError(code: String, message: String, error: Throwable? = null) {
     synchronized(this) {
