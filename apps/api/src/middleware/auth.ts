@@ -35,7 +35,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 
 export function allowRoles(...roles: Role[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) return res.status(403).json({ error: "Permisos insuficientes" });
+    const canShop = roles.includes("customer") && req.user && ["store", "driver"].includes(req.user.role);
+    if (!req.user || (!roles.includes(req.user.role) && !canShop)) return res.status(403).json({ error: "Permisos insuficientes" });
     return next();
   };
 }

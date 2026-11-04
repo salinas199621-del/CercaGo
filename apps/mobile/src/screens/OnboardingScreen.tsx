@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Animated, Dimensions, Pressable, ScrollView, Text, View, type ScrollViewInstance } from "react-native";
 import { Button, styles } from "../components/UI";
-import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { CercaGoLogo } from "../components/CercaGoLogo";
 import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
 import { useAppearance } from "../appearance";
 
@@ -11,7 +11,7 @@ const pages = [
   { eyebrow: "CADA PEDIDO, SIEMPRE A LA VISTA", title: "Tu pedido va contigo", body: "Sigue cada paso y conoce a las personas que hacen crecer tu comunidad.", icon: "🛵", color: "#FFF5D9", accent: "#D98B18" },
 ];
 
-export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComplete }: { exchangeRate: number | null; exchangeRateValueDate: string | null; onComplete: () => void }) {
+export function OnboardingScreen({ onComplete }: { onComplete: () => void }) {
   const { theme } = useAppearance();
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollViewInstance | null>(null);
@@ -27,13 +27,10 @@ export function OnboardingScreen({ exchangeRate, exchangeRateValueDate, onComple
     <ScrollView style={[styles.page, { backgroundColor: theme.background }]} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 24 }}>
       <View style={{ width: "100%", maxWidth: 440, alignSelf: "center" }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <Text style={{ color: theme.primaryDark, fontWeight: "900", fontSize: 17, letterSpacing: 2 }}>CERCAGO</Text>
+          <CercaGoLogo style={{ width: 145, height: 42, borderRadius: 8, backgroundColor: "#fff" }} />
           <Pressable accessibilityRole="button" onPress={onComplete} hitSlop={12}>
             <Text style={{ color: "#777D89", fontSize: 14, fontWeight: "700" }}>Omitir</Text>
           </Pressable>
-        </View>
-        <View style={{ marginBottom: 14 }}>
-          <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
         </View>
         <ScrollView
           ref={scrollRef}

@@ -12,12 +12,12 @@ Marketplace local con API REST, PostgreSQL, Socket.IO, app React Native para cli
 
 1. Copia `apps/api/.env.example` a `apps/api/.env` y configura PostgreSQL, un `JWT_SECRET` aleatorio de al menos 32 caracteres y las variables iniciales de administrador (contraseña de al menos 16 caracteres).
 2. Crea la base de datos y ejecuta `apps/api/sql/schema.sql`.
-   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 007 de `apps/api/sql/migrations/`. Antes de aplicar `006_account_recovery.sql`, revisa teléfonos duplicados con `SELECT phone, COUNT(*) FROM users WHERE phone IS NOT NULL AND phone <> '' GROUP BY phone HAVING COUNT(*) > 1;` y resuélvelos manualmente; la migración crea un índice único y no modifica registros existentes.
+   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 008 de `apps/api/sql/migrations/`. Antes de aplicar `006_account_recovery.sql`, revisa teléfonos duplicados con `SELECT phone, COUNT(*) FROM users WHERE phone IS NOT NULL AND phone <> '' GROUP BY phone HAVING COUNT(*) > 1;` y resuélvelos manualmente; la migración crea un índice único y no modifica registros existentes.
 3. Desde la raíz ejecuta `npm install`.
 4. Crea la cuenta de administración inicial con `npm run create-admin -w @cercago/api`.
 5. En terminales separadas ejecuta `npm run dev:api`, `npm run dev:mobile` y `npm run dev:admin`.
 
-No hay cuentas, pedidos ni comercios de prueba en el acceso. Crea usuarios con el formulario de registro y afilia comercios reales desde la administración. El acceso admite correo o teléfono venezolano +58; la sesión nativa se protege con Keychain/Keystore y el JWT dura 30 días por defecto (`JWT_EXPIRES_IN`). El cliente puede editar nombre, correo y teléfono desde su perfil; el número se almacena en formato canónico +58. Para activar la recuperación de contraseña configura SMTP para correo y/o Twilio para SMS en el entorno del API. La tasa consulta DolarAPI, después el servidor y finalmente la última tasa oficial guardada en el dispositivo.
+No hay cuentas, pedidos ni comercios de prueba en el acceso. El registro requiere una dirección `@gmail.com` y contraseña; el nombre comienza como “Usuario CercaGo” y el usuario puede completar nombre y teléfono desde su perfil. Al elegir repartidor se solicita la cédula, que se cifra con AES-GCM y se usa un HMAC para evitar registros duplicados; no se devuelve en las respuestas del API. Las cuentas de comercio y repartidor también pueden cambiar al modo cliente; las cuentas cliente no pueden elevarse a esos roles. El acceso de cuentas existentes admite correo o teléfono venezolano +58; la sesión nativa se protege con Keychain/Keystore y el JWT dura 30 días por defecto (`JWT_EXPIRES_IN`). Para activar la recuperación de contraseña configura SMTP para correo y/o Twilio para SMS en el entorno del API. La tasa consulta DolarAPI, después el servidor y finalmente la última tasa oficial guardada en el dispositivo.
 
 ## Publicar y probar la web
 
@@ -27,9 +27,11 @@ La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y 
 
 ## Banners y actualizaciones de la app
 
-Los anuncios del Home se administran desde **Panel de administración → Anuncios** y se guardan en la API. Cada entrada admite imágenes/GIF o video, una URL HTTPS, texto, color y un enlace HTTPS opcional. El cliente carga la configuración del servidor; los videos se reproducen silenciados en web y Android. Los anuncios ya no aparecen en los ajustes del cliente.
+Los anuncios del Home se administran desde **Panel de administración → Anuncios del inicio** y se guardan en la API. Cada entrada admite imágenes/GIF o video, una URL HTTPS, texto, color y un enlace HTTPS opcional. El cliente carga la configuración del servidor; los videos se reproducen silenciados en web y Android. Los anuncios ya no aparecen en los ajustes del cliente.
 
-`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión 1.1.1 (Android `versionCode` 12) incluye correcciones del selector GPS y de los paneles de perfil y direcciones. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
+La sección **Publicidad Externa y Marcas Patrocinadas** es independiente del carrusel interno. Permite configurar marca, medio, URL, destino opcional, estado y posición (pop-up splash, banner entre categorías o tarjeta flotante). La API guarda esta configuración por separado y notifica cambios en tiempo real a los clientes conectados; también la actualizan periódicamente como respaldo. Los videos patrocinados se reproducen en bucle y silenciados por defecto, con un botón para activar el sonido; la X del splash aparece después de 10 segundos. Los cambios de anuncios se reflejan sin actualizar el APK.
+
+`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión 1.1.2 (Android `versionCode` 13) incluye el botón para activar el sonido de anuncios patrocinados y el cierre del splash tras 10 segundos. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
 
 Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
 
@@ -48,7 +50,7 @@ El repositorio incluye `render.yaml` para desplegar la API Node en Render. Para 
 
 1. Crea un proyecto PostgreSQL en Neon y copia la cadena de conexión (usa la cadena recomendada por Neon con SSL). No la compartas ni la guardes en Git.
 2. En Render, crea un **Blueprint** conectado a este repositorio y acepta `render.yaml`. Configura `DATABASE_URL` con la cadena de Neon cuando Render la solicite. `JWT_SECRET` se genera automáticamente y el sitio canónico se sirve desde Render.
-3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Para una base ya existente, aplica en orden las migraciones 001 a 007; la migración 007 habilita los cupones de comercio.
+3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Para una base ya existente, aplica en orden las migraciones 001 a 007; la API aplica de forma idempotente la migración 008 al iniciar para habilitar la identificación privada de repartidores.
 4. En Render, espera a que el servicio `cercago-api` esté activo. Comprueba `https://TU-API.onrender.com/health`; debe responder `{"status":"ok"}`.
 5. Crea el administrador inicial ejecutando `npm run create-admin -w @cercago/api` desde tu equipo, con `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y una contraseña de 16–72 bytes configurados temporalmente en la terminal. No añadas esos valores al repositorio.
 6. El sitio, el panel y el API se despliegan desde el mismo servicio de Render; la aplicación Android usa ese API por HTTPS.

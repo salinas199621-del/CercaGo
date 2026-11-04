@@ -1,5 +1,6 @@
 import "dotenv/config";
 import http from "node:http";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import express from "express";
 import cors from "cors";
@@ -106,7 +107,7 @@ io.use(async (socket, next) => {
 io.on("connection", async (socket) => {
   const user = socket.data.user as { id: string; role: string };
   socket.join(`user:${user.id}`);
-  if (user.role === "customer") socket.join(`customer:${user.id}`);
+  if (["customer", "store", "driver"].includes(user.role)) socket.join(`customer:${user.id}`);
   if (user.role === "driver") socket.join(`driver:${user.id}`);
   if (user.role === "store") {
     const store = await pool.query("SELECT id FROM stores WHERE owner_id = $1", [user.id]);
@@ -122,7 +123,18 @@ io.on("connection", async (socket) => {
 });
 
 const port = Number(process.env.PORT || 4000);
-server.listen(port, () => console.log(`CercaGo API escuchando en el puerto ${port}`));
+async function startServer() {
+  const driverIdentityMigration = await readFile(
+    resolve(__dirname, "../sql/migrations/008_driver_identity.sql"),
+    "utf8",
+  );
+  await pool.query(driverIdentityMigration);
+  server.listen(port, () => console.log(`CercaGo API escuchando en el puerto ${port}`));
+}
+void startServer().catch((error: unknown) => {
+  console.error("No se pudo aplicar la migración de identidad de repartidores ni iniciar CercaGo", error);
+  process.exit(1);
+});
 const exchangeRateRefreshTimer = setInterval(() => {
   void refreshExchangeRate((rate) => io.emit("exchange-rate:updated", rate))
     .catch((error) => console.error("No se pudo actualizar la tasa oficial del BCV", error));

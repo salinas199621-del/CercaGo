@@ -14,7 +14,7 @@ import { HomeSplash } from "./src/components/HomeSplash";
 import { AppearanceProvider, useAppearance } from "./src/appearance";
 
 const Stack = createNativeStackNavigator();
-const CURRENT_APP_VERSION = "1.1.1";
+const CURRENT_APP_VERSION = "1.1.2";
 const VERSION_MANIFEST_URL = "https://salinas199621-del.github.io/CercaGo/app-version.json";
 const nativeUpdater = NativeModules.CercaGoUpdate as {
   installUpdate: (url: string, version: string) => Promise<void>;
@@ -75,12 +75,13 @@ function AdminNotice() {
 }
 
 function RootNavigator() {
-  const { session, loading, signOut, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { session, loading, signOut } = useAuth();
   const { theme, darkMode } = useAppearance();
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [onboardingLoaded, setOnboardingLoaded] = useState(false);
   const [startupSplashDone, setStartupSplashDone] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+  const [customerMode, setCustomerMode] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<{ version: string; url: string } | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress>(initialUpdateProgress);
@@ -118,9 +119,11 @@ function RootNavigator() {
   }, []);
   useEffect(() => {
     if (!session) {
+      setCustomerMode(false);
       setSplashDone(false);
       return;
     }
+    setCustomerMode(false);
     if (session.user.role !== "customer") {
       setSplashDone(true);
       return;
@@ -129,6 +132,26 @@ function RootNavigator() {
     const timer = setTimeout(() => setSplashDone(true), 1500);
     return () => clearTimeout(timer);
   }, [session?.user.id, session?.user.role]);
+
+  const accountRole = session?.user.role;
+  const canSwitchToCustomerMode = accountRole === "store" || accountRole === "driver";
+  const activeScreen = accountRole === "admin"
+    ? AdminNotice
+    : accountRole === "store"
+      ? customerMode ? CustomerScreen : StoreScreen
+      : accountRole === "driver"
+        ? customerMode ? CustomerScreen : DriverScreen
+        : CustomerScreen;
+  const activeTitle = customerMode
+    ? "Modo cliente"
+    : accountRole === "store"
+      ? "Tu comercio"
+      : accountRole === "driver"
+        ? "Repartidor"
+        : accountRole === "admin"
+          ? "Administración"
+          : "CercaGo";
+
   async function completeOnboarding() {
     await AsyncStorage.setItem("cercago-onboarding-done", "true");
     setOnboardingDone(true);
@@ -231,7 +254,7 @@ function RootNavigator() {
   );
   if (!startupSplashDone) return <HomeSplash />;
   if (loading || !onboardingLoaded) return <View style={{ flex: 1, justifyContent: "center", backgroundColor: theme.primary }}><ActivityIndicator size="large" color="#fff" /></View>;
-  if (!session && !onboardingDone) return <OnboardingScreen exchangeRate={exchangeRate} exchangeRateValueDate={exchangeRateValueDate} onComplete={() => void completeOnboarding()} />;
+  if (!session && !onboardingDone) return <OnboardingScreen onComplete={() => void completeOnboarding()} />;
   if (session?.user.role === "customer" && !splashDone) return <HomeSplash />;
   return (
     <NavigationContainer>
@@ -241,15 +264,26 @@ function RootNavigator() {
         ) : (
           <Stack.Screen
             name="Inicio"
-            component={session.user.role === "admin" ? AdminNotice : session.user.role === "store" ? StoreScreen : session.user.role === "driver" ? DriverScreen : CustomerScreen}
+            component={activeScreen}
             options={{
-              headerShown: session.user.role !== "customer",
-              title: session.user.role === "store" ? "Tu comercio" : session.user.role === "driver" ? "Repartidor" : session.user.role === "admin" ? "Administración" : "CercaGo",
+              headerShown: session.user.role !== "customer" || customerMode,
+              title: activeTitle,
               headerTintColor: theme.ink,
               headerTitleStyle: { fontWeight: "900" },
               headerStyle: { backgroundColor: theme.background },
               headerShadowVisible: false,
-              headerRight: () => <Button title="Salir" secondary onPress={() => void signOut()} />,
+              headerRight: () => (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                  {canSwitchToCustomerMode && (
+                    <Button
+                      title={customerMode ? (accountRole === "store" ? "Panel comercio" : "Panel repartidor") : "Modo cliente"}
+                      secondary
+                      onPress={() => setCustomerMode((current) => !current)}
+                    />
+                  )}
+                  <Button title="Salir" secondary onPress={() => void signOut()} />
+                </View>
+              ),
             }}
           />
         )}

@@ -28,12 +28,14 @@ import { CercaGoLogo } from "../components/CercaGoLogo";
 import { Avatar, illustratedAvatars } from "../components/Avatar";
 import { ProfilePhotoPicker } from "../components/ProfilePhotoPicker";
 import { PromotionBanner } from "../components/PromotionBanner";
+import { ExternalAdMedia } from "../components/ExternalAdMedia";
 import { LocationPicker } from "../components/LocationPicker";
 import type { LocationCoordinates } from "../components/LocationPickerMap";
 import { OrderChatSheet } from "../components/OrderChatSheet";
 import { CustomerInboxSheet, type OrderNotice } from "../components/CustomerInboxSheet";
 import { formatDualPrice } from "../currency";
 import { defaultPromotions, parsePromotions, type Promotion } from "../promotions";
+import { parseSponsoredAds, type SponsoredAd } from "../externalAds";
 import type { Address, Category, Order, Product, Store } from "../types";
 import { socket } from "./socketRef";
 
@@ -169,6 +171,62 @@ function StoreCard({ store, exchangeRate, onPress, cardWidth }: {
   );
 }
 
+function SponsoredAdCard({ ad, variant, onPress, onDismiss }: {
+  ad: SponsoredAd;
+  variant: "banner" | "floating";
+  onPress: () => void;
+  onDismiss?: () => void;
+}) {
+  const { theme } = useAppearance();
+  const height = variant === "floating" ? 108 : 132;
+  return (
+    <View style={{
+      height,
+      width: variant === "floating" ? "100%" : undefined,
+      borderRadius: 18,
+      overflow: "hidden",
+      backgroundColor: theme.primaryDark,
+      borderWidth: 1,
+      borderColor: theme.border,
+      shadowColor: "#111827",
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.18,
+      shadowRadius: 12,
+      elevation: 5,
+    }}>
+      {ad.mediaType === "video" ? (
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <ExternalAdMedia ad={ad} onPress={onPress} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} />
+          <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "#091A20A8" }} />
+          <View pointerEvents="none" style={{ padding: 14, paddingRight: onDismiss ? 52 : 14 }}>
+            <Text numberOfLines={1} style={{ color: "#FFFFFFD9", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 }}>PATROCINADO</Text>
+            <Text numberOfLines={1} style={{ color: "#fff", fontSize: variant === "floating" ? 15 : 17, fontWeight: "900", marginTop: 3 }}>{ad.brandName}</Text>
+          </View>
+        </View>
+      ) : (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Publicidad patrocinada de ${ad.brandName}`} onPress={onPress} style={{ flex: 1, justifyContent: "flex-end" }}>
+          <ExternalAdMedia ad={ad} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} />
+          <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "#091A20A8" }} />
+          <View pointerEvents="none" style={{ padding: 14, paddingRight: onDismiss ? 52 : 14 }}>
+          <Text numberOfLines={1} style={{ color: "#FFFFFFD9", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 }}>PATROCINADO</Text>
+          <Text numberOfLines={1} style={{ color: "#fff", fontSize: variant === "floating" ? 15 : 17, fontWeight: "900", marginTop: 3 }}>{ad.brandName}</Text>
+          </View>
+        </Pressable>
+      )}
+      {onDismiss && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar publicidad patrocinada"
+          onPress={onDismiss}
+          style={{ position: "absolute", right: 8, top: 8, width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#111827B8" }}
+        >
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "700", lineHeight: 23 }}>×</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 export function CustomerScreen() {
   const { session, signOut, updateProfile, exchangeRate, exchangeRateValueDate, exchangeRateFallback } = useAuth();
   const { theme, darkMode, accentColor, headerColor, setTheme, setDarkMode, setAccentColor, setHeaderColor } = useAppearance();
@@ -182,6 +240,7 @@ export function CustomerScreen() {
     green: darkMode ? "#4ADE80" : "#23824E",
   };
   const token = session!.token;
+  const customerOrdersEndpoint = session!.user.role === "customer" ? "/orders" : "/orders?scope=customer";
   const { width: screenWidth } = useWindowDimensions();
   const storeCardWidth = Math.max(0, Math.min(840, screenWidth - 40));
   const logoWidth = Math.min(120, Math.max(42, screenWidth - 295));
@@ -237,9 +296,17 @@ export function CustomerScreen() {
   const [driverComment, setDriverComment] = useState("");
   const [bannerIndex, setBannerIndex] = useState(0);
   const [promotions, setPromotions] = useState<Promotion[]>(defaultPromotions);
+  const [sponsoredAds, setSponsoredAds] = useState<SponsoredAd[]>([]);
+  const [dismissedSplashAdIds, setDismissedSplashAdIds] = useState<string[]>([]);
+  const [floatingAdDismissed, setFloatingAdDismissed] = useState(false);
+  const [splashCloseAllowed, setSplashCloseAllowed] = useState(false);
+  const [splashCloseCountdown, setSplashCloseCountdown] = useState(10);
   const bannerRef = useRef<ScrollViewInstance | null>(null);
   const pageScrollRef = useRef<ScrollViewInstance | null>(null);
   const [storeSectionY, setStoreSectionY] = useState(0);
+  const splashTimerAd = activeTab === "home" && !selected
+    ? sponsoredAds.find((ad) => ad.position === "startup_splash" && !dismissedSplashAdIds.includes(ad.id))
+    : undefined;
   const bannerWidth = Math.min(screenWidth - 40, 840);
   const itemCount = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
   const cartTotal = products.reduce((sum, product) => sum + Number(product.price) * (cart[product.id] ?? 0), 0);
@@ -251,6 +318,22 @@ export function CustomerScreen() {
   const categorySuggestions = searchTerm
     ? categories.filter((category) => category.name.toLowerCase().includes(searchTerm)).slice(0, 2)
     : [];
+  useEffect(() => {
+    setSplashCloseAllowed(false);
+    setSplashCloseCountdown(10);
+    if (!splashTimerAd) return;
+
+    let remaining = 10;
+    const timer = setInterval(() => {
+      remaining -= 1;
+      setSplashCloseCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(timer);
+        setSplashCloseAllowed(true);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [splashTimerAd?.id]);
   const extraCategoryGroups: HomeCategoryGroup[] = categories
     .filter((category) => categoryGroupKey(category.name, category.id).startsWith("extra:"))
     .map((category) => ({
@@ -282,18 +365,18 @@ export function CustomerScreen() {
 
   const refreshOrders = useCallback(async () => {
     try {
-      const recent = await api<Order[]>("/orders", token);
+      const recent = await api<Order[]>(customerOrdersEndpoint, token);
       setOrders(recent);
       setActiveChatOrder((current) => current ? recent.find((item) => item.id === current.id) ?? current : null);
       setReviewOrder((current) => current ?? recent.find((item) => item.status === "delivered" && !item.has_review) ?? null);
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Error cargando pedidos"); }
-  }, [token]);
+  }, [customerOrdersEndpoint, token]);
 
   useEffect(() => {
     Promise.all([
       api<Store[]>("/stores"),
-      api<Order[]>("/orders", token),
+      api<Order[]>(customerOrdersEndpoint, token),
       api<Category[]>("/categories"),
       api<Address[]>("/addresses", token),
     ])
@@ -308,7 +391,7 @@ export function CustomerScreen() {
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "No se pudieron cargar los datos"))
       .finally(() => setBusy(false));
-  }, [token]);
+  }, [customerOrdersEndpoint, token]);
 
   useEffect(() => {
     AsyncStorage.getItem(notificationsStorageKey)
@@ -351,6 +434,28 @@ export function CustomerScreen() {
     }
     void loadPromotions();
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function refreshSponsoredAds() {
+      try {
+        const result = await api<{ ads: unknown }>("/external-ads");
+        const configured = parseSponsoredAds(result.ads).filter((ad) => ad.active);
+        if (active) setSponsoredAds(configured);
+      } catch (reason) {
+        console.error("No se pudo actualizar la publicidad externa.", reason);
+      }
+    }
+    const handleAdsUpdated = () => { void refreshSponsoredAds(); };
+    void refreshSponsoredAds();
+    socket?.on("external-ads:updated", handleAdsUpdated);
+    const refreshTimer = setInterval(handleAdsUpdated, 60_000);
+    return () => {
+      active = false;
+      clearInterval(refreshTimer);
+      socket?.off("external-ads:updated", handleAdsUpdated);
+    };
   }, []);
 
   useEffect(() => {
@@ -673,6 +778,13 @@ export function CustomerScreen() {
     });
   }
 
+  function openSponsoredAd(ad: SponsoredAd) {
+    if (!ad.destinationUrl) return;
+    void Linking.openURL(ad.destinationUrl).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : "No se pudo abrir el enlace de la marca.");
+    });
+  }
+
   if (busy) return <Loading />;
   const visibleStores = stores.filter((store) => {
     const matchesText = `${store.name} ${store.category_name ?? ""}`.toLowerCase().includes(search.toLowerCase());
@@ -688,6 +800,16 @@ export function CustomerScreen() {
   const freeDelivery = visibleStores.filter(storeHasFreeDelivery);
   const newest = [...visibleStores].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   const deliveryFee = selected && storeHasFreeDelivery(selected) ? 0 : Number(selected?.delivery_fee ?? 2.99);
+  const isCustomerHome = activeTab === "home" && !selected;
+  const splashSponsoredAd = isCustomerHome
+    ? splashTimerAd
+    : undefined;
+  const floatingSponsoredAd = isCustomerHome && !floatingAdDismissed
+    ? sponsoredAds.find((ad) => ad.position === "floating_home")
+    : undefined;
+  const categorySponsoredAds = isCustomerHome
+    ? sponsoredAds.filter((ad) => ad.position === "between_categories")
+    : [];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: !selected ? theme.header : palette.background }} edges={["top", "bottom"]}>
@@ -782,7 +904,6 @@ export function CustomerScreen() {
           </View>
         )}
         {error ? <Pressable onPress={() => setError("")}><Text style={styles.error}>{error}  ×</Text></Pressable> : null}
-        {selected && <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} fallback={exchangeRateFallback} />}
         {activeTab === "orders" ? (
           <>
             <View style={{ gap: 5, marginTop: 6 }}>
@@ -920,6 +1041,9 @@ export function CustomerScreen() {
                 />
               ))}
             </ScrollView>
+            {categorySponsoredAds.map((ad) => (
+              <SponsoredAdCard key={ad.id} ad={ad} variant="banner" onPress={() => openSponsoredAd(ad)} />
+            ))}
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
               <View><Text style={[styles.section, { color: palette.ink }]}>Comercios cercanos</Text><Text style={[styles.subtitle, { color: palette.muted }]}>Los favoritos de tus vecinos</Text></View>
@@ -958,6 +1082,19 @@ export function CustomerScreen() {
         )}
       </ScrollView>
 
+      {floatingSponsoredAd && !sheet && !drawerVisible && !inboxVisible && (
+      <View style={{ position: "absolute", left: 16, right: 16, bottom: 12, alignItems: "center", zIndex: 2 }}>
+        <View style={{ width: "100%", maxWidth: 520 }}>
+          <SponsoredAdCard
+            ad={floatingSponsoredAd}
+            variant="floating"
+            onPress={() => openSponsoredAd(floatingSponsoredAd)}
+            onDismiss={() => setFloatingAdDismissed(true)}
+          />
+        </View>
+      </View>
+      )}
+
       <CustomerDrawer
         visible={drawerVisible}
         name={session!.user.name}
@@ -988,6 +1125,55 @@ export function CustomerScreen() {
           openPromotion(promotion, promotions.findIndex((item) => item.id === promotion.id));
         }}
       />
+
+      <Modal
+        visible={Boolean(splashSponsoredAd)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (splashCloseAllowed && splashSponsoredAd) {
+            setDismissedSplashAdIds((current) => [...current, splashSponsoredAd.id]);
+          }
+        }}
+      >
+        {splashSponsoredAd && (
+          <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 22, backgroundColor: "#101820E8" }}>
+            <View style={{ width: "100%", maxWidth: 520, height: "76%", maxHeight: 620, overflow: "hidden", borderRadius: 24, backgroundColor: theme.surface }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Publicidad patrocinada de ${splashSponsoredAd.brandName}`}
+                onPress={() => openSponsoredAd(splashSponsoredAd)}
+                style={{ flex: 1, justifyContent: "flex-end" }}
+              >
+                <ExternalAdMedia
+                  ad={splashSponsoredAd}
+                  onPress={() => openSponsoredAd(splashSponsoredAd)}
+                  style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+                />
+                <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "#091A204D" }} />
+                <View style={{ padding: 20, paddingRight: 60, backgroundColor: "#091A2099" }}>
+                  <Text style={{ color: "#FFFFFFD9", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>PATROCINADO</Text>
+                  <Text style={{ color: "#fff", fontSize: 23, fontWeight: "900", marginTop: 5 }}>{splashSponsoredAd.brandName}</Text>
+                </View>
+              </Pressable>
+              {splashCloseAllowed ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cerrar anuncio patrocinado"
+                  onPress={() => setDismissedSplashAdIds((current) => [...current, splashSponsoredAd.id])}
+                  style={{ position: "absolute", right: 12, top: 12, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#101820D9", borderWidth: 1, borderColor: "#FFFFFF99" }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 25, fontWeight: "700", lineHeight: 29 }}>×</Text>
+                </Pressable>
+              ) : (
+                <View accessibilityLabel={`Podrás cerrar el anuncio en ${splashCloseCountdown} segundos`} style={{ position: "absolute", right: 12, top: 12, minHeight: 40, paddingHorizontal: 11, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#101820D9", borderWidth: 1, borderColor: "#FFFFFF99" }}>
+                  <Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>{splashCloseCountdown}s</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+      </Modal>
 
       <Modal visible={sheet !== null} transparent animationType="slide" onRequestClose={() => setSheet(null)}>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "#15192366" }}>

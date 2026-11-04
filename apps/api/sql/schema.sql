@@ -9,6 +9,8 @@ CREATE TABLE users (
   name VARCHAR(120) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   phone VARCHAR(32),
+  driver_identity_hash CHAR(64),
+  driver_identity_encrypted TEXT,
   password_hash TEXT,
   google_sub TEXT UNIQUE,
   role user_role NOT NULL DEFAULT 'customer',
@@ -19,6 +21,7 @@ CREATE TABLE users (
 );
 CREATE INDEX users_role_active_idx ON users(role, active);
 CREATE UNIQUE INDEX users_phone_unique_idx ON users(phone) WHERE phone IS NOT NULL AND phone <> '';
+CREATE UNIQUE INDEX users_driver_identity_hash_unique_idx ON users(driver_identity_hash) WHERE driver_identity_hash IS NOT NULL;
 
 CREATE TABLE password_reset_codes (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

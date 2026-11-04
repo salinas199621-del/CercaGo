@@ -6,6 +6,15 @@ type User = { id: string; name: string; email: string; role: string; active: boo
 type Store = { id: string; name: string; address: string; owner_name: string; owner_email: string; approved: boolean; active: boolean; commission_rate: number; is_demo: boolean };
 type StoreUpdate = { approved?: boolean; active?: boolean; commissionRate?: number };
 type Promotion = { id: string; tag: string; title: string; body: string; mediaType: "image" | "video"; mediaUrl: string; linkUrl?: string; tint: string };
+type SponsoredAd = {
+  id: string;
+  brandName: string;
+  mediaType: "image" | "video";
+  mediaUrl: string;
+  destinationUrl?: string;
+  position: "startup_splash" | "between_categories" | "floating_home";
+  active: boolean;
+};
 type Metrics = { users: Array<{ role: string; count: number }>; stores: { total: number; approved: number }; orders: Array<{ status: string; count: number }>; sales: { gross_sales: string; order_count: number } };
 type ExchangeRate = { rate: number; source: "BCV"; valueDate: string; updatedAt: string };
 type RecoveryStage = "login" | "request" | "confirm";
@@ -41,6 +50,7 @@ export default function App() {
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>(defaultPromotions);
+  const [sponsoredAds, setSponsoredAds] = useState<SponsoredAd[]>([]);
   const [commission, setCommission] = useState("10");
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [exchangeRateError, setExchangeRateError] = useState("");
@@ -59,18 +69,20 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      const [nextMetrics, nextStores, nextUsers, setting, promotionSetting] = await Promise.all([
+      const [nextMetrics, nextStores, nextUsers, setting, promotionSetting, sponsoredAdSetting] = await Promise.all([
         request<Metrics>("/admin/metrics", token),
         request<Store[]>("/admin/stores", token),
         request<User[]>("/admin/users", token),
         request<{ rate: number }>("/admin/settings/commission", token),
         request<{ promotions: Promotion[] | null }>("/admin/promotions", token),
+        request<{ ads: SponsoredAd[] }>("/admin/external-ads", token),
       ]);
       setMetrics(nextMetrics);
       setStores(nextStores);
       setUsers(nextUsers);
       setCommission(String(setting.rate));
       setPromotions(promotionSetting.promotions ?? defaultPromotions);
+      setSponsoredAds(sponsoredAdSetting.ads);
       try {
         setExchangeRate(await request<ExchangeRate>("/exchange-rate", token));
         setExchangeRateError("");
@@ -258,6 +270,45 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
+  function addSponsoredAd() {
+    if (sponsoredAds.length >= 50) {
+      setError("Puedes configurar hasta 50 anuncios patrocinados.");
+      return;
+    }
+    setSponsoredAds((current) => [...current, {
+      id: crypto.randomUUID(),
+      brandName: "",
+      mediaType: "image",
+      mediaUrl: "",
+      destinationUrl: "",
+      position: "between_categories",
+      active: true,
+    }]);
+  }
+
+  function updateSponsoredAd(id: string, update: Partial<SponsoredAd>) {
+    setSponsoredAds((current) => current.map((ad) => ad.id === id ? { ...ad, ...update } : ad));
+  }
+
+  async function saveSponsoredAds() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await request<{ ads: SponsoredAd[] }>("/admin/external-ads", token, {
+        method: "PUT",
+        body: JSON.stringify({ ads: sponsoredAds.map(({ destinationUrl, ...ad }) => ({
+          ...ad,
+          ...(destinationUrl?.trim() ? { destinationUrl: destinationUrl.trim() } : {}),
+        })) }),
+      });
+      setSponsoredAds(result.ads);
+      setNotice("Publicidad externa guardada. Los clientes conectados recibirán los cambios al instante.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la publicidad externa.");
+    } finally { setBusy(false); }
+  }
+
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setPasswordMessage("");
@@ -412,6 +463,65 @@ export default function App() {
           </article>
         ))}
         <button disabled={busy} onClick={() => void savePromotions()}>{busy ? "Guardando…" : "Guardar anuncios"}</button>
+      </section>
+      <section className="panel external-ads-panel">
+        <div className="section-heading">
+          <div>
+            <h2>Publicidad Externa y Marcas Patrocinadas</h2>
+            <p className="muted">Módulo independiente de las promociones internas. Los cambios se reflejan en clientes conectados sin actualizar el APK.</p>
+          </div>
+          <button type="button" className="outline" disabled={busy || sponsoredAds.length >= 50} onClick={addSponsoredAd}>Agregar marca</button>
+        </div>
+        <p className="muted">Usa enlaces HTTPS directos para el archivo y el destino. Máximo 50 anuncios externos.</p>
+        {sponsoredAds.map((ad, index) => (
+          <article className="sponsored-ad-editor" key={ad.id}>
+            <div className="promotion-heading">
+              <strong>{ad.brandName.trim() || `Marca patrocinada ${index + 1}`}</strong>
+              <div className="sponsored-ad-actions">
+                <label className="ad-toggle">
+                  <input
+                    type="checkbox"
+                    checked={ad.active}
+                    onChange={(event) => updateSponsoredAd(ad.id, { active: event.target.checked })}
+                    aria-label={`Publicidad de ${ad.brandName || `marca ${index + 1}`} activa`}
+                  />
+                  <span>{ad.active ? "Activo" : "Inactivo"}</span>
+                </label>
+                <button type="button" className="small delete" disabled={busy} onClick={() => setSponsoredAds((current) => current.filter((item) => item.id !== ad.id))}>Eliminar</button>
+              </div>
+            </div>
+            <div className="sponsored-ad-fields">
+              <label>Nombre de la Marca<input maxLength={120} placeholder="Samsung, Coca-Cola, Marca Local" value={ad.brandName} onChange={(event) => updateSponsoredAd(ad.id, { brandName: event.target.value })} required /></label>
+              <label>Tipo de Medio
+                <select value={ad.mediaType} onChange={(event) => updateSponsoredAd(ad.id, { mediaType: event.target.value as SponsoredAd["mediaType"] })}>
+                  <option value="image">Imagen/GIF</option>
+                  <option value="video">Video HTML5 (.mp4)</option>
+                </select>
+              </label>
+              <label>URL Directa del Archivo
+                <input type="url" inputMode="url" placeholder={ad.mediaType === "video" ? "https://…/anuncio.mp4" : "https://…/imagen.gif"} value={ad.mediaUrl} onChange={(event) => updateSponsoredAd(ad.id, { mediaUrl: event.target.value })} required />
+              </label>
+              <label>Enlace de Destino Externo (Opcional)
+                <input type="url" inputMode="url" placeholder="https://sitio-de-la-marca.com" value={ad.destinationUrl ?? ""} onChange={(event) => updateSponsoredAd(ad.id, { destinationUrl: event.target.value })} />
+              </label>
+              <label>Posición de Despliegue
+                <select value={ad.position} onChange={(event) => updateSponsoredAd(ad.id, { position: event.target.value as SponsoredAd["position"] })}>
+                  <option value="startup_splash">Pantalla Completa al Abrir (Pop-up Splash)</option>
+                  <option value="between_categories">Banner entre Categorías</option>
+                  <option value="floating_home">Tarjeta flotante en el Home</option>
+                </select>
+              </label>
+            </div>
+            {ad.mediaUrl.startsWith("https://") && (
+              <div className="sponsored-ad-preview">
+                {ad.mediaType === "video"
+                  ? <video src={ad.mediaUrl} autoPlay loop muted playsInline />
+                  : <img src={ad.mediaUrl} alt={`Vista previa de ${ad.brandName || "marca patrocinada"}`} />}
+              </div>
+            )}
+          </article>
+        ))}
+        <button disabled={busy} onClick={() => void saveSponsoredAds()}>{busy ? "Guardando…" : "Guardar publicidad externa"}</button>
       </section>
       <section className="panel">
         <div className="section-heading">

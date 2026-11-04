@@ -1,27 +1,24 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useAuth } from "../auth/AuthContext";
 import { useAppearance } from "../appearance";
 import { Button, Field, styles } from "../components/UI";
-import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { CercaGoLogo } from "../components/CercaGoLogo";
 import { AndroidDownloadLink } from "../components/AndroidDownloadLink";
 
 type AccountRole = "customer" | "store" | "driver";
 
 export function LoginScreen() {
-  const { signIn, signUp, requestPasswordReset, resetPassword, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { signIn, signUp, requestPasswordReset, resetPassword } = useAuth();
   const { theme } = useAppearance();
   const [registering, setRegistering] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
   const [role, setRole] = useState<AccountRole>("customer");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [identityDocument, setIdentityDocument] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [storeName, setStoreName] = useState("");
-  const [storeAddress, setStoreAddress] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,18 +54,19 @@ export function LoginScreen() {
           setSuccess("Contraseña actualizada. Ya puedes iniciar sesión.");
         }
       } else if (registering) {
-        const mobile = phone.replace(/\D/g, "").replace(/^0/, "");
-        if (mobile.length !== 10) throw new Error("Ingresa los 10 dígitos de tu teléfono móvil después de +58.");
+        const email = identifier.trim().toLowerCase();
+        if (!/^[^\s@]+@gmail\.com$/.test(email)) throw new Error("Regístrate con una dirección de correo @gmail.com.");
+        if (password.length < 10) throw new Error("La contraseña debe tener al menos 10 caracteres.");
+        const normalizedIdentityDocument = identityDocument.trim().toUpperCase();
+        if (role === "driver" && !/^[VE]-?\d{5,9}$/.test(normalizedIdentityDocument)) {
+          throw new Error("Escribe una cédula válida, por ejemplo V-12345678.");
+        }
         const payload: Record<string, unknown> = {
-          name: name.trim(),
-          email: identifier.trim(),
-          phone: `+58${mobile}`,
+          email,
           password,
           role,
         };
-        if (role === "store") {
-          payload.store = { name: storeName.trim(), address: storeAddress.trim() };
-        }
+        if (role === "driver") payload.identityDocument = normalizedIdentityDocument;
         await signUp(payload);
       } else {
         await signIn(identifier.trim(), password);
@@ -100,7 +98,7 @@ export function LoginScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <View style={{ backgroundColor: theme.primary, minHeight: 184, borderRadius: 28, padding: 22, justifyContent: "space-between", overflow: "hidden" }}>
-        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "900", letterSpacing: 2 }}>CERCAGO</Text>
+        <CercaGoLogo style={{ width: 150, height: 43, borderRadius: 8, backgroundColor: "#fff" }} />
         <Text style={{ fontSize: 64, position: "absolute", right: 24, top: 24 }}>🛍️</Text>
         <View style={{ maxWidth: 310, gap: 7 }}>
           <Text style={{ color: "#fff", fontSize: 28, lineHeight: 34, fontWeight: "900" }}>
@@ -110,9 +108,6 @@ export function LoginScreen() {
         </View>
       </View>
 
-      <View style={{ marginTop: 13 }}>
-        <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
-      </View>
       {!registering && !recovering && <AndroidDownloadLink />}
 
       <View style={{ backgroundColor: theme.surface, borderRadius: 22, padding: 18, gap: 12, borderWidth: 1, borderColor: theme.border, marginTop: 10 }}>
@@ -121,27 +116,12 @@ export function LoginScreen() {
           <Text style={[styles.subtitle, { color: theme.muted }]}>
             {recovering
               ? resetRequested ? "Escribe el código recibido y define una contraseña segura." : "Te enviaremos un código al correo o teléfono asociado a tu cuenta."
-              : registering ? "Completa tus datos para comenzar." : "Ingresa con tu correo o teléfono y contraseña."}
+              : registering ? "Crea tu acceso con Gmail. Tu nombre y teléfono podrás agregarlos después en el perfil." : "Ingresa con tu correo o teléfono y contraseña."}
           </Text>
         </View>
 
         {registering && (
           <>
-            <Field label="Nombre completo" value={name} onChangeText={setName} placeholder="Tu nombre y apellido" />
-            <View style={{ gap: 5 }}>
-              <Text style={styles.label}>Número de teléfono</Text>
-              <View style={{ flexDirection: "row", alignItems: "center", minHeight: 48, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 13, backgroundColor: "#fff" }}>
-                <Text style={{ paddingHorizontal: 13, color: theme.primaryDark, fontWeight: "900" }}>+58</Text>
-                <TextInput
-                  accessibilityLabel="Número de teléfono"
-                  style={{ flex: 1, minHeight: 48, color: theme.ink, paddingRight: 12 }}
-                  value={phone}
-                  onChangeText={(value) => setPhone(value.replace(/\D/g, "").slice(0, 11))}
-                  placeholder="412 000 0000"
-                  keyboardType="phone-pad"
-                />
-              </View>
-            </View>
             <View style={{ gap: 5 }}>
               <Text style={styles.label}>Tipo de cuenta</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
@@ -161,19 +141,24 @@ export function LoginScreen() {
                 ))}
               </View>
             </View>
-            {role === "store" && <>
-              <Field label="Nombre del comercio" value={storeName} onChangeText={setStoreName} />
-              <Field label="Dirección del comercio" value={storeAddress} onChangeText={setStoreAddress} />
+            {role === "driver" && <>
+              <Field
+                label="Cédula de identidad"
+                value={identityDocument}
+                onChangeText={(value) => setIdentityDocument(value.toUpperCase().replace(/\s/g, ""))}
+                placeholder="V-12345678"
+              />
+              <Text style={[styles.subtitle, { color: theme.muted }]}>La cédula identifica tu cuenta de repartidor y no se muestra a los clientes.</Text>
             </>}
           </>
         )}
 
         {!recovering && <Field
-          label={registering ? "Correo electrónico" : "Correo o teléfono"}
+          label={registering ? "Correo Gmail" : "Correo o teléfono"}
           value={identifier}
           onChangeText={setIdentifier}
           keyboardType={registering ? "email-address" : "default"}
-          placeholder={registering ? "tu@email.com" : "tu@email.com o +58 412…"}
+          placeholder={registering ? "tunombre@gmail.com" : "tu@email.com o +58 412…"}
         />}
         {recovering && !resetRequested && <Field
           label="Correo o teléfono registrado"
@@ -202,7 +187,13 @@ export function LoginScreen() {
         {!registering && !recovering && <Pressable accessibilityRole="button" onPress={() => changeMode("recover")} style={{ alignSelf: "center", padding: 8 }}>
           <Text style={{ color: theme.primaryDark, fontSize: 13, fontWeight: "800" }}>Olvidé mi contraseña</Text>
         </Pressable>}
-        {registering && role === "store" && <Text style={[styles.subtitle, { color: theme.muted, fontSize: 12 }]}>Los comercios nuevos requieren aprobación antes de aparecer en el marketplace.</Text>}
+        {registering && <Text style={[styles.subtitle, { color: theme.muted, fontSize: 12 }]}>
+          {role === "store"
+            ? "Después de crear la cuenta, completa el nombre y la ubicación del comercio. Requiere aprobación antes de aparecer."
+            : role === "driver"
+              ? "Tu cuenta de repartidor también podrá usar CercaGo en modo cliente."
+              : "Tu cuenta se creará con el nombre genérico “Usuario CercaGo”; complétalo en tu perfil cuando quieras."}
+        </Text>}
       </View>
     </ScrollView>
   );

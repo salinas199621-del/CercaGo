@@ -1,11 +1,14 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Alert, ScrollView, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { MapPin } from "lucide-react-native";
 import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Field, Loading, styles } from "../components/UI";
 import { OrderChatSheet } from "../components/OrderChatSheet";
 import { formatDualPrice } from "../currency";
-import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
+import { LocationPickerMap, type LocationCoordinates } from "../components/LocationPickerMap";
+import { ProductPhotoPicker } from "../components/ProductPhotoPicker";
+import * as Location from "../location";
 import { useAppearance } from "../appearance";
 import type { Order, Product } from "../types";
 import { socket } from "./socketRef";
@@ -21,8 +24,10 @@ type StoreCoupon = {
   active: boolean;
 };
 
+const defaultStoreMapCenter: LocationCoordinates = { latitude: 10.245, longitude: -67.595 };
+
 export function StoreScreen() {
-  const { session, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { session, exchangeRate } = useAuth();
   const { theme } = useAppearance();
   const token = session!.token;
   const [orders, setOrders] = useState<Order[]>([]);
@@ -30,6 +35,11 @@ export function StoreScreen() {
   const [coupons, setCoupons] = useState<StoreCoupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [locatingStore, setLocatingStore] = useState(false);
+  const [resolvingStoreAddress, setResolvingStoreAddress] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
@@ -39,8 +49,7 @@ export function StoreScreen() {
   const [storeName, setStoreName] = useState("");
   const [storeAddress, setStoreAddress] = useState("");
   const [storeDescription, setStoreDescription] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  const [locationCoordinates, setLocationCoordinates] = useState<LocationCoordinates | null>(null);
   const [hasOwnDelivery, setHasOwnDelivery] = useState(false);
   const [freeDelivery, setFreeDelivery] = useState(false);
   const [paymentBank, setPaymentBank] = useState("");
@@ -52,32 +61,49 @@ export function StoreScreen() {
   const [couponDiscountValue, setCouponDiscountValue] = useState("");
   const [couponUsageLimit, setCouponUsageLimit] = useState("");
   const [couponRequiredOrders, setCouponRequiredOrders] = useState("0");
+  const addressLookupSequence = useRef(0);
 
   const refresh = useCallback(async () => {
-    try {
-      const [nextOrders, nextProducts, store, nextCoupons] = await Promise.all([
-        api<Order[]>("/orders", token),
-        api<Product[]>("/products/mine", token),
-        api<{ name: string; address: string; description?: string; latitude?: number | null; longitude?: number | null; has_own_delivery?: boolean; free_delivery?: boolean; payment_bank?: string | null; payment_document?: string | null; payment_phone?: string | null }>("/stores/me", token),
-        api<StoreCoupon[]>("/store/coupons", token),
-      ]);
-      setOrders(nextOrders);
-      setProducts(nextProducts);
-      setCoupons(nextCoupons);
+    const [ordersResult, productsResult, storeResult, couponsResult] = await Promise.allSettled([
+      api<Order[]>("/orders", token),
+      api<Product[]>("/products/mine", token),
+      api<{
+        name: string;
+        address: string;
+        description?: string;
+        latitude?: number | string | null;
+        longitude?: number | string | null;
+        has_own_delivery?: boolean;
+        free_delivery?: boolean;
+        payment_bank?: string | null;
+        payment_document?: string | null;
+        payment_phone?: string | null;
+      }>("/stores/me", token),
+      api<StoreCoupon[]>("/store/coupons", token),
+    ]);
+    const failures: string[] = [];
+    if (ordersResult.status === "fulfilled") setOrders(ordersResult.value);
+    else failures.push(ordersResult.reason instanceof Error ? ordersResult.reason.message : "No se pudieron cargar los pedidos.");
+    if (productsResult.status === "fulfilled") setProducts(productsResult.value);
+    else failures.push(productsResult.reason instanceof Error ? productsResult.reason.message : "No se pudo cargar el catálogo.");
+    if (storeResult.status === "fulfilled") {
+      const store = storeResult.value;
       setStoreName(store.name);
       setStoreAddress(store.address);
       setStoreDescription(store.description ?? "");
-      setLatitude(store.latitude == null ? "" : String(store.latitude));
-      setLongitude(store.longitude == null ? "" : String(store.longitude));
+      const latitude = store.latitude == null ? null : Number(store.latitude);
+      const longitude = store.longitude == null ? null : Number(store.longitude);
+      setLocationCoordinates(latitude !== null && longitude !== null ? { latitude, longitude } : null);
       setHasOwnDelivery(Boolean(store.has_own_delivery));
       setFreeDelivery(Boolean(store.free_delivery));
       setPaymentBank(store.payment_bank ?? "");
       setPaymentDocument(store.payment_document ?? "");
       setPaymentPhone(store.payment_phone ?? "");
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "No se pudieron cargar los datos");
-    } finally { setLoading(false); }
+    } else failures.push(storeResult.reason instanceof Error ? storeResult.reason.message : "No se pudo cargar el perfil del negocio.");
+    if (couponsResult.status === "fulfilled") setCoupons(couponsResult.value);
+    else failures.push(couponsResult.reason instanceof Error ? `No se pudieron cargar los cupones: ${couponsResult.reason.message}` : "No se pudieron cargar los cupones.");
+    setError(failures.join(" "));
+    setLoading(false);
   }, [token]);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -96,13 +122,26 @@ export function StoreScreen() {
     const numericPrice = Number(price);
     const quantity = Number(stockQuantity);
     if (!name.trim() || !Number.isFinite(numericPrice) || numericPrice < 0 || !Number.isInteger(quantity) || quantity < 0) return setError("Ingresa nombre, precio y stock válido.");
+    setSavingProduct(true);
+    setError("");
+    setNotice("");
     try {
-      const payload = { name, description, price: numericPrice, stockQuantity: quantity, inStock: quantity > 0, ...(imageUrl ? { imageUrl } : {}) };
-      if (editing) await api(`/products/${editing}`, token, { method: "PATCH", body: JSON.stringify(payload) });
-      else await api("/products", token, { method: "POST", body: JSON.stringify(payload) });
+      const payload = { name: name.trim(), description: description.trim(), price: numericPrice, stockQuantity: quantity, inStock: quantity > 0, imageUrl: imageUrl || null };
+      const savedProduct = editing
+        ? await api<Product>(`/products/${editing}`, token, { method: "PATCH", body: JSON.stringify(payload) })
+        : await api<Product>("/products", token, { method: "POST", body: JSON.stringify(payload) });
+      setProducts((current) => {
+        const next = editing
+          ? current.map((product) => product.id === savedProduct.id ? savedProduct : product)
+          : [...current, savedProduct];
+        return next.sort((left, right) => left.name.localeCompare(right.name));
+      });
       resetForm();
       await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el producto"); }
+      setNotice(editing ? "Producto actualizado." : "Producto guardado en tu catálogo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar el producto");
+    } finally { setSavingProduct(false); }
   }
 
   async function changeOrder(order: Order, status: string) {
@@ -121,25 +160,67 @@ export function StoreScreen() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo actualizar el producto"); }
   }
 
-  async function saveStoreProfile() {
-    const hasLatitude = latitude.trim().length > 0;
-    const hasLongitude = longitude.trim().length > 0;
-    const latitudeValue = Number(latitude);
-    const longitudeValue = Number(longitude);
-    if (hasLatitude !== hasLongitude) return setError("Ingresa latitud y longitud, o deja ambos campos vacíos.");
-    if (hasLatitude && (!Number.isFinite(latitudeValue) || !Number.isFinite(longitudeValue) ||
-      latitudeValue < -90 || latitudeValue > 90 || longitudeValue < -180 || longitudeValue > 180)) {
-      return setError("Las coordenadas no son válidas.");
+  async function resolveStoreAddress(coordinates: LocationCoordinates) {
+    const sequence = ++addressLookupSequence.current;
+    setResolvingStoreAddress(true);
+    try {
+      const result = await api<{ street: string; city: string }>(
+        `/location/reverse?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}`,
+      );
+      if (sequence !== addressLookupSequence.current) return;
+      const address = [result.street, result.city].filter(Boolean).join(", ");
+      if (address) {
+        setStoreAddress(address);
+        setNotice("Dirección encontrada. Puedes ajustarla antes de guardar.");
+      } else {
+        setNotice("Ubicación seleccionada. Completa la dirección si hace falta.");
+      }
+    } catch (reason) {
+      if (sequence !== addressLookupSequence.current) return;
+      console.error("No se pudo obtener la dirección del comercio desde el mapa", reason);
+      setNotice("Ubicación seleccionada. Escribe la dirección manualmente si no se completa.");
+    } finally {
+      if (sequence === addressLookupSequence.current) setResolvingStoreAddress(false);
     }
+  }
+
+  function selectStoreLocation(coordinates: LocationCoordinates) {
+    setLocationCoordinates(coordinates);
+    setNotice("");
+    void resolveStoreAddress(coordinates);
+  }
+
+  async function useStoreCurrentLocation() {
+    setLocatingStore(true);
+    setError("");
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") throw new Error("Debes permitir el acceso a la ubicación para usar el GPS.");
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      selectStoreLocation(current.coords);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "No se pudo obtener tu ubicación.";
+      setError(message);
+      Alert.alert("Ubicación no disponible", message);
+    } finally { setLocatingStore(false); }
+  }
+
+  async function saveStoreProfile() {
+    if (storeName.trim().length < 2 || storeAddress.trim().length < 5) {
+      return setError("Ingresa el nombre y la dirección completa del negocio.");
+    }
+    setSavingProfile(true);
+    setError("");
+    setNotice("");
     try {
       await api("/stores/me", token, {
         method: "PATCH",
         body: JSON.stringify({
-          name: storeName,
-          address: storeAddress,
-          description: storeDescription,
-          latitude: hasLatitude ? latitudeValue : null,
-          longitude: hasLongitude ? longitudeValue : null,
+          name: storeName.trim(),
+          address: storeAddress.trim(),
+          description: storeDescription.trim(),
+          latitude: locationCoordinates?.latitude ?? null,
+          longitude: locationCoordinates?.longitude ?? null,
           hasOwnDelivery,
           freeDelivery,
           paymentBank: paymentBank || null,
@@ -147,8 +228,10 @@ export function StoreScreen() {
           paymentPhone: paymentPhone || null,
         }),
       });
-      Alert.alert("Perfil actualizado", "Los cambios del comercio fueron guardados.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo actualizar el perfil"); }
+      setNotice("Perfil del negocio guardado.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo actualizar el perfil");
+    } finally { setSavingProfile(false); }
   }
 
   async function createCoupon() {
@@ -217,25 +300,50 @@ export function StoreScreen() {
           ))}
         </View>
       </View>
-      <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {notice ? <Text style={{ color: theme.primaryDark, backgroundColor: theme.soft, padding: 11, borderRadius: 12, fontSize: 12, fontWeight: "700" }}>{notice}</Text> : null}
       <Card>
-        <Text style={[styles.section, { color: theme.ink }]}>Perfil del negocio</Text>
+        <Text style={[styles.section, { color: theme.ink, marginTop: 0 }]}>Perfil del negocio</Text>
+        <Text style={[styles.subtitle, { color: theme.muted }]}>Mantén actualizados los datos que verán tus clientes y repartidores.</Text>
         <Field label="Nombre del negocio" value={storeName} onChangeText={setStoreName} />
-        <Field label="Dirección" value={storeAddress} onChangeText={setStoreAddress} />
-        <Field label="Descripción" value={storeDescription} onChangeText={setStoreDescription} multiline />
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}><Field label="Latitud" value={latitude} onChangeText={setLatitude} keyboardType="numeric" /></View>
-          <View style={{ flex: 1 }}><Field label="Longitud" value={longitude} onChangeText={setLongitude} keyboardType="numeric" /></View>
+        <View style={{ gap: 7 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+            <MapPin size={16} color={theme.primaryDark} />
+            <Text style={[styles.label, { color: theme.ink }]}>Ubicación del negocio</Text>
+          </View>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>
+            Toca el mapa para marcar tu local. La dirección se completa automáticamente.
+          </Text>
+          <LocationPickerMap
+            coordinates={locationCoordinates ?? defaultStoreMapCenter}
+            onSelect={selectStoreLocation}
+            mapHeight={230}
+          />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <Text style={{ flex: 1, color: locationCoordinates ? theme.primaryDark : theme.muted, fontSize: 11, fontWeight: "700" }}>
+              {resolvingStoreAddress ? "Buscando dirección…" : locationCoordinates ? "Punto del negocio marcado en el mapa" : "Marca la ubicación exacta de tu negocio"}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={locatingStore}
+              onPress={() => void useStoreCurrentLocation()}
+              style={{ minHeight: 40, justifyContent: "center", paddingHorizontal: 10, borderRadius: 11, backgroundColor: theme.soft, opacity: locatingStore ? 0.6 : 1 }}
+            >
+              <Text style={{ color: theme.primaryDark, fontSize: 11, fontWeight: "800" }}>
+                {locatingStore ? "Buscando GPS…" : "Usar GPS"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
-        <Text style={[styles.subtitle, { color: theme.muted }]}>Configura las coordenadas para recibir repartidores cercanos.</Text>
+        <Field label="Dirección del negocio" value={storeAddress} onChangeText={(value) => { setStoreAddress(value); setNotice(""); }} placeholder="Se completa al elegir el mapa; puedes editarla" multiline />
+        <Field label="Descripción" value={storeDescription} onChangeText={setStoreDescription} multiline />
         <Button title={`Delivery propio: ${hasOwnDelivery ? "Sí" : "No"}`} secondary onPress={() => setHasOwnDelivery((value) => !value)} />
         <Button title={`Delivery gratis: ${freeDelivery ? "Sí" : "No"}`} secondary onPress={() => setFreeDelivery((value) => !value)} />
-        <Text style={[styles.section, { color: theme.ink }]}>Datos de Pago Móvil</Text>
+        <Text style={[styles.section, { color: theme.ink }]}>Datos de pago móvil</Text>
         <Field label="Banco" value={paymentBank} onChangeText={setPaymentBank} placeholder="Banco de Venezuela" />
         <Field label="RIF o cédula" value={paymentDocument} onChangeText={setPaymentDocument} placeholder="J-12345678-9" />
         <Field label="Teléfono" value={paymentPhone} onChangeText={setPaymentPhone} placeholder="0412-1234567" keyboardType="numeric" />
-        <Button title="Guardar perfil" onPress={() => void saveStoreProfile()} />
+        <Button title={savingProfile ? "Guardando perfil…" : "Guardar perfil"} disabled={savingProfile} onPress={() => void saveStoreProfile()} />
       </Card>
       <Text style={[styles.section, { color: theme.ink }]}>Pedidos entrantes</Text>
       {!orders.length && <Text style={[styles.subtitle, { color: theme.muted }]}>No tienes pedidos todavía.</Text>}
@@ -288,28 +396,48 @@ export function StoreScreen() {
           </View>
         ))}
       </Card>
-      <Text style={[styles.section, { color: theme.ink }]}>{editing ? "Editar producto" : "Agregar producto"}</Text>
-      <Field label="Nombre" value={name} onChangeText={setName} />
-      <Field label="Descripción" value={description} onChangeText={setDescription} />
-      <Field label="Precio" value={price} onChangeText={setPrice} keyboardType="numeric" />
-      <Field label="Unidades disponibles" value={stockQuantity} onChangeText={setStockQuantity} keyboardType="numeric" />
-      <Field label="URL de imagen (opcional)" value={imageUrl} onChangeText={setImageUrl} />
-      <Button title={editing ? "Guardar cambios" : "Agregar al catálogo"} onPress={() => void saveProduct()} />
-      {editing && <Button title="Cancelar edición" secondary onPress={resetForm} />}
-      <Text style={[styles.section, { color: theme.ink }]}>Catálogo ({products.length})</Text>
+      <Card>
+        <Text style={[styles.section, { color: theme.ink, marginTop: 0 }]}>{editing ? "Editar producto" : "Nuevo producto"}</Text>
+        <Text style={[styles.subtitle, { color: theme.muted }]}>Completa los datos y agrega una foto directamente desde tu teléfono.</Text>
+        <Field label="Nombre del producto" value={name} onChangeText={setName} placeholder="Ej. Arepas de queso" />
+        <Field label="Descripción (opcional)" value={description} onChangeText={setDescription} placeholder="Ingredientes, tamaño o detalles" multiline />
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}><Field label="Precio" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="0.00" /></View>
+          <View style={{ flex: 1 }}><Field label="Unidades disponibles" value={stockQuantity} onChangeText={setStockQuantity} keyboardType="numeric" /></View>
+        </View>
+        <View style={{ gap: 7 }}>
+          <Text style={[styles.label, { color: theme.ink }]}>Foto del producto</Text>
+          <ProductPhotoPicker value={imageUrl} onSelect={setImageUrl} disabled={savingProduct} />
+        </View>
+        <Button title={savingProduct ? "Guardando producto…" : editing ? "Guardar cambios" : "Agregar al catálogo"} disabled={savingProduct} onPress={() => void saveProduct()} />
+        {editing && <Button title="Cancelar edición" secondary onPress={resetForm} />}
+      </Card>
+      <Text style={[styles.section, { color: theme.ink }]}>Tu catálogo · {products.length}</Text>
+      {!products.length && <Text style={[styles.subtitle, { color: theme.muted }]}>Todavía no hay productos. Agrega el primero con el formulario.</Text>}
       {products.map((product) => (
         <Card key={product.id}>
-          <View style={styles.row}>
-            <Text style={{ color: theme.ink, fontWeight: "700", flex: 1 }}>{product.name} · {formatDualPrice(product.price, exchangeRate)}</Text>
-            <Text style={{ color: theme.muted }}>{product.in_stock ? `${product.stock_quantity ?? 0} disponibles` : "Agotado"}</Text>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+            {product.image_url ? (
+              <Image source={{ uri: product.image_url }} resizeMode="cover" style={{ width: 68, height: 68, borderRadius: 12, backgroundColor: theme.soft }} />
+            ) : (
+              <View style={{ width: 68, height: 68, borderRadius: 12, backgroundColor: theme.soft, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: theme.primaryDark, fontSize: 20, fontWeight: "900" }}>{product.name.slice(0, 1).toUpperCase()}</Text>
+              </View>
+            )}
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text numberOfLines={1} style={{ color: theme.ink, fontWeight: "800", fontSize: 14 }}>{product.name}</Text>
+              <Text style={{ color: theme.primaryDark, fontWeight: "800", fontSize: 12 }}>{formatDualPrice(product.price, exchangeRate)}</Text>
+              <Text style={{ color: theme.muted, fontSize: 11 }}>{product.in_stock ? `${product.stock_quantity ?? 0} disponibles` : "Agotado"}</Text>
+            </View>
           </View>
-          <View style={styles.row}>
-            <Button title="Editar" secondary onPress={() => {
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <View style={{ flex: 1, minWidth: 100 }}><Button title="Editar" secondary onPress={() => {
               setEditing(product.id); setName(product.name); setDescription(product.description ?? "");
               setPrice(String(product.price)); setImageUrl(product.image_url ?? ""); setStockQuantity(String(product.stock_quantity ?? 0));
-            }} />
-            <Button title={product.in_stock ? "Marcar agotado" : "Reponer stock"} secondary onPress={() => void toggleStock(product)} />
-            <Button title="Eliminar" secondary onPress={() => deleteProduct(product)} />
+              setNotice("");
+            }} /></View>
+            <View style={{ flex: 1, minWidth: 130 }}><Button title={product.in_stock ? "Marcar agotado" : "Reponer stock"} secondary onPress={() => void toggleStock(product)} /></View>
+            <View style={{ flex: 1, minWidth: 100 }}><Button title="Eliminar" secondary onPress={() => deleteProduct(product)} /></View>
           </View>
         </Card>
       ))}

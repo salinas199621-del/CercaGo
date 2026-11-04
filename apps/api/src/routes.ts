@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { pool } from "./db";
@@ -14,6 +14,10 @@ import type { AuthRequest } from "./types";
 const router = Router();
 const googleOAuthClient = new OAuth2Client();
 const passwordSchema = z.string().min(10).refine((value) => Buffer.byteLength(value, "utf8") <= 72, "La contraseña no puede superar 72 bytes");
+const gmailSchema = z.string().trim().email().max(255).refine(
+  (value) => value.toLowerCase().endsWith("@gmail.com"),
+  "Regístrate con una dirección @gmail.com.",
+);
 const promotionSchema = z.array(z.object({
   id: z.string().trim().min(1).max(100),
   tag: z.string().trim().max(60),
@@ -24,21 +28,48 @@ const promotionSchema = z.array(z.object({
   linkUrl: z.string().url().refine((value) => value.startsWith("https://"), "El enlace debe usar HTTPS").optional(),
   tint: z.string().regex(/^#[\da-f]{6}$/i),
 })).max(20);
+const sponsoredAdSchema = z.array(z.object({
+  id: z.string().trim().min(1).max(100),
+  brandName: z.string().trim().min(1).max(120),
+  mediaType: z.enum(["image", "video"]),
+  mediaUrl: z.string().url().max(2000).refine((value) => value.startsWith("https://"), "El medio debe usar HTTPS"),
+  destinationUrl: z.preprocess(
+    (value) => value === "" ? undefined : value,
+    z.string().url().max(2000).refine((value) => value.startsWith("https://"), "El enlace debe usar HTTPS").optional(),
+  ),
+  position: z.enum(["startup_splash", "between_categories", "floating_home"]),
+  active: z.boolean(),
+})).max(50);
+const productImageSchema = z.union([
+  z.string().url().max(760_000).refine((value) => /^https?:\/\//i.test(value), "La imagen debe usar HTTP o HTTPS."),
+  z.string().max(760_000).regex(
+    /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/,
+    "La foto debe ser JPEG, PNG o WebP.",
+  ),
+]);
 let reverseGeocodeQueue = Promise.resolve();
 let lastReverseGeocodeAt = 0;
 const reverseGeocodeCache = new Map<string, { street: string; city: string }>();
 const registerSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  email: z.string().trim().email().max(255),
-  phone: z.string().trim().regex(/^\+58\d{10}$/, "El teléfono debe tener formato +58 seguido de 10 dígitos"),
+  name: z.string().trim().min(2).max(120).default("Usuario CercaGo"),
+  email: gmailSchema,
+  phone: z.string().trim().regex(/^\+58\d{10}$/, "El teléfono debe tener formato +58 seguido de 10 dígitos").nullable().optional(),
   password: passwordSchema,
   role: z.enum(["customer", "store", "driver"]).default("customer"),
+  identityDocument: z.string().trim().toUpperCase().regex(/^[VE]-?\d{5,9}$/, "Escribe una cédula válida, por ejemplo V-12345678.").optional(),
   store: z.object({
     name: z.string().trim().min(2).max(160),
     address: z.string().trim().min(5),
     description: z.string().max(2000).optional(),
     categoryId: z.string().uuid().optional(),
   }).optional(),
+}).superRefine((input, context) => {
+  if (input.role === "driver" && !input.identityDocument) {
+    context.addIssue({ code: "custom", path: ["identityDocument"], message: "La cédula es obligatoria para registrarse como repartidor." });
+  }
+  if (input.role !== "driver" && input.identityDocument) {
+    context.addIssue({ code: "custom", path: ["identityDocument"], message: "La cédula solo se solicita para el perfil de repartidor." });
+  }
 });
 
 function actor(req: AuthRequest) {
@@ -62,6 +93,14 @@ function normalizePhone(value: string) {
   const digits = value.replace(/\D/g, "");
   const national = digits.startsWith("58") ? digits.slice(2) : digits.startsWith("0") ? digits.slice(1) : digits;
   return national.length === 10 ? `+58${national}` : null;
+}
+
+function encryptDriverIdentity(value: string) {
+  const key = createHmac("sha256", jwtSecret()).update("driver-identity-encryption").digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
 }
 
 function resetCodeHash(userId: string, code: string) {
@@ -129,32 +168,36 @@ function userIdentifier(identifier: string) {
 
 router.post("/auth/register", asyncHandler(async (req, res) => {
   const input = registerSchema.parse(req.body);
-  if (input.role === "store" && !input.store) return res.status(400).json({ error: "Los comercios requieren nombre y dirección del negocio" });
   if (input.role !== "store" && input.store) return res.status(400).json({ error: "El perfil de comercio solo aplica a ese rol" });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const passwordHash = await bcrypt.hash(input.password, 12);
+    const identityDocumentHash = input.identityDocument
+      ? createHmac("sha256", jwtSecret()).update(`driver-identity:${input.identityDocument.replace("-", "")}`).digest("hex")
+      : null;
+    const identityDocumentEncrypted = input.identityDocument ? encryptDriverIdentity(input.identityDocument) : null;
     const userResult = await client.query(
-      `INSERT INTO users(name, email, phone, password_hash, role)
-       VALUES ($1, LOWER($2), $3, $4, $5)
+      `INSERT INTO users(name, email, phone, password_hash, role, driver_identity_hash, driver_identity_encrypted)
+       VALUES ($1, LOWER($2), $3, $4, $5, $6, $7)
        RETURNING id, name, email, phone, role`,
-      [input.name, input.email, input.phone, passwordHash, input.role],
+      [input.name, input.email, input.phone ?? null, passwordHash, input.role, identityDocumentHash, identityDocumentEncrypted],
     );
     const user = userResult.rows[0];
-    if (input.store) {
+    if (input.role === "store") {
+      const storeProfile = input.store ?? { name: "Mi comercio", address: "Dirección pendiente de configurar" };
       await client.query(
         `INSERT INTO stores(owner_id, category_id, name, description, address, commission_rate)
          VALUES ($1, $2, $3, $4, $5,
            COALESCE((SELECT (value #>> '{}')::numeric FROM app_settings WHERE key = 'default_commission_rate'), 10))`,
-        [user.id, input.store.categoryId ?? null, input.store.name, input.store.description ?? null, input.store.address],
+        [user.id, input.store?.categoryId ?? null, storeProfile.name, input.store?.description ?? null, storeProfile.address],
       );
     }
     await client.query("COMMIT");
     return res.status(201).json({ user, token: tokenFor(user) });
   } catch (error) {
     await client.query("ROLLBACK");
-    if ((error as { code?: string }).code === "23505") return res.status(409).json({ error: "El correo o teléfono ya está registrado" });
+    if ((error as { code?: string }).code === "23505") return res.status(409).json({ error: "El correo, teléfono o cédula ya está registrado." });
     throw error;
   } finally {
     client.release();
@@ -348,6 +391,10 @@ router.post("/auth/google", asyncHandler(async (req, res) => {
       return res.status(403).json({ error: "Google está disponible para cuentas de cliente. Usa el acceso habitual de tu perfil." });
     }
     if (!user) {
+      if (!email.endsWith("@gmail.com")) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Para crear una cuenta CercaGo, usa una dirección @gmail.com." });
+      }
       const created = await client.query(
         `INSERT INTO users(name, email, password_hash, google_sub, role)
          VALUES ($1, $2, NULL, $3, 'customer')
@@ -383,7 +430,7 @@ router.get("/auth/me", authenticate, asyncHandler(async (req, res) => {
 router.patch("/auth/me", authenticate, asyncHandler(async (req, res) => {
   const input = z.object({
     name: z.string().trim().min(2).max(120),
-    email: z.string().trim().email().max(255),
+    email: gmailSchema,
     phone: z.string().trim().regex(/^\+58\d{10}$/).nullable(),
   }).parse(req.body);
   try {
@@ -424,6 +471,12 @@ router.get("/exchange-rate", asyncHandler(async (_req, res) => {
 router.get("/promotions", asyncHandler(async (_req, res) => {
   const { rows } = await pool.query("SELECT value FROM app_settings WHERE key = 'promotions'");
   return res.json({ promotions: rows[0]?.value ?? null });
+}));
+
+router.get("/external-ads", asyncHandler(async (_req, res) => {
+  const { rows } = await pool.query("SELECT value FROM app_settings WHERE key = 'external_ads'");
+  const ads = Array.isArray(rows[0]?.value) ? rows[0].value.filter((ad: { active?: unknown }) => ad?.active === true) : [];
+  return res.json({ ads });
 }));
 
 router.get("/location/reverse", asyncHandler(async (req, res) => {
@@ -562,7 +615,7 @@ router.post("/products", authenticate, allowRoles("store"), asyncHandler(async (
     name: z.string().trim().min(1).max(160),
     description: z.string().max(2000).optional(),
     price: z.number().nonnegative(),
-    imageUrl: z.string().url().optional(),
+    imageUrl: productImageSchema.nullable().optional(),
     stockQuantity: z.number().int().min(0).default(1),
     inStock: z.boolean().optional(),
   }).parse(req.body);
@@ -581,7 +634,7 @@ router.patch("/products/:productId", authenticate, allowRoles("store"), asyncHan
     name: z.string().trim().min(1).max(160).optional(),
     description: z.string().max(2000).nullable().optional(),
     price: z.number().nonnegative().optional(),
-    imageUrl: z.string().url().nullable().optional(),
+    imageUrl: productImageSchema.nullable().optional(),
     inStock: z.boolean().optional(),
     stockQuantity: z.number().int().min(0).optional(),
     active: z.boolean().optional(),
@@ -1056,7 +1109,9 @@ router.get("/orders", authenticate, asyncHandler(async (req, res) => {
   const user = actor(req as AuthRequest);
   let where: string;
   let parameters: unknown[];
-  if (user.role === "customer") {
+  const customerScope = user.role === "customer" ||
+    (["store", "driver"].includes(user.role) && req.query.scope === "customer");
+  if (customerScope) {
     where = "o.customer_id = $1";
     parameters = [user.id];
   } else if (user.role === "store") {
@@ -1069,7 +1124,7 @@ router.get("/orders", authenticate, asyncHandler(async (req, res) => {
     where = "TRUE";
     parameters = [];
   }
-  const paymentFields = ["customer", "store"].includes(user.role)
+  const paymentFields = customerScope || user.role === "store"
     ? "s.payment_bank, s.payment_document, s.payment_phone,"
     : "NULL::varchar AS payment_bank, NULL::varchar AS payment_document, NULL::varchar AS payment_phone,";
   const { rows } = await pool.query(
@@ -1147,8 +1202,9 @@ router.post("/orders/:orderId/messages", authenticate, asyncHandler(async (req, 
     paymentReference: z.string().trim().max(120).optional(),
   }).refine((value) => Boolean(value.message || value.attachmentUrl || value.paymentReference)).parse(req.body);
   if (!await canAccessOrder(req.params.orderId, user.id)) return res.status(404).json({ error: "Pedido no encontrado" });
-  if (user.role === "customer" && (input.paymentReference || input.attachmentUrl)) {
+  if (input.paymentReference || input.attachmentUrl) {
     const status = await pool.query("SELECT status FROM orders WHERE id = $1 AND customer_id = $2", [req.params.orderId, user.id]);
+    if (!status.rows[0]) return res.status(403).json({ error: "Solo quien hizo el pedido puede enviar el comprobante de pago." });
     if (!["accepted", "preparing", "ready", "picked_up", "delivered"].includes(status.rows[0]?.status)) {
       return res.status(409).json({ error: "Espera la confirmación del comercio antes de transferir y enviar el comprobante" });
     }
@@ -1467,6 +1523,22 @@ router.put("/admin/promotions", authenticate, allowRoles("admin"), asyncHandler(
     [JSON.stringify(promotions)],
   );
   return res.json({ promotions });
+}));
+
+router.get("/admin/external-ads", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {
+  const { rows } = await pool.query("SELECT value FROM app_settings WHERE key = 'external_ads'");
+  return res.json({ ads: rows[0]?.value ?? [] });
+}));
+
+router.put("/admin/external-ads", authenticate, allowRoles("admin"), asyncHandler(async (req, res) => {
+  const ads = sponsoredAdSchema.parse(req.body.ads);
+  await pool.query(
+    `INSERT INTO app_settings(key, value, updated_at) VALUES('external_ads', $1::jsonb, NOW())
+     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [JSON.stringify(ads)],
+  );
+  req.app.get("io")?.emit("external-ads:updated");
+  return res.json({ ads });
 }));
 
 router.get("/admin/stores", authenticate, allowRoles("admin"), asyncHandler(async (_req, res) => {

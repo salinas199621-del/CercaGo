@@ -5,7 +5,6 @@ import { api } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Card, Loading, styles } from "../components/UI";
 import { formatDualPrice } from "../currency";
-import { ExchangeRateBadge } from "../components/ExchangeRateBadge";
 import { useAppearance } from "../appearance";
 import type { Order } from "../types";
 import { socket } from "./socketRef";
@@ -20,7 +19,7 @@ interface AvailableDelivery extends Order {
 }
 
 export function DriverScreen() {
-  const { session, exchangeRate, exchangeRateValueDate } = useAuth();
+  const { session, exchangeRate } = useAuth();
   const { theme } = useAppearance();
   const token = session!.token;
   const [available, setAvailable] = useState<AvailableDelivery[]>([]);
@@ -110,7 +109,6 @@ export function DriverScreen() {
           ))}
         </View>
       </View>
-      <ExchangeRateBadge rate={exchangeRate} valueDate={exchangeRateValueDate} />
       <Text style={[styles.subtitle, { color: theme.muted }]}>Las ofertas se actualizan con tu ubicación.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Text style={[styles.section, { color: theme.ink }]}>Mis entregas</Text>
