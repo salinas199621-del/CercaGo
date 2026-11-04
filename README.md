@@ -31,7 +31,7 @@ Los anuncios del Home se administran desde **Panel de administración → Anunci
 
 La sección **Publicidad Externa y Marcas Patrocinadas** es independiente del carrusel interno. Permite configurar marca, medio, URL, destino opcional, estado y posición (pop-up splash, banner entre categorías o tarjeta flotante). La API guarda esta configuración por separado y notifica cambios en tiempo real a los clientes conectados; también la actualizan periódicamente como respaldo. Los videos patrocinados se reproducen en bucle y silenciados por defecto, con un botón para activar el sonido; la X del splash aparece después de 10 segundos. Los cambios de anuncios se reflejan sin actualizar el APK.
 
-`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión 1.1.2 (Android `versionCode` 13) incluye el botón para activar el sonido de anuncios patrocinados y el cierre del splash tras 10 segundos. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
+`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión 1.1.2 (Android `versionCode` 13) incluye el botón para activar el sonido de anuncios patrocinados y el cierre del splash tras 10 segundos. El enlace de actualización apunta al APK de su etiqueta de versión para evitar redirecciones a una versión anterior. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
 
 Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
 
