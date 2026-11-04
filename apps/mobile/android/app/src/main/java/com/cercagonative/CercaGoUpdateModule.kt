@@ -14,7 +14,6 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.uimanager.ViewManager
 import java.io.File
@@ -153,25 +152,18 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
   }
 
   private fun emitProgress(downloadedBytes: Long, totalBytes: Long, phase: String) {
-    val progress = createProgressEvent(downloadedBytes, totalBytes, phase)
     context.runOnUiQueueThread {
-      emitProgressOnUi(progress)
+      emitProgressOnUi(downloadedBytes, totalBytes, phase)
     }
   }
 
   private fun emitProgressOnUi(downloadedBytes: Long, totalBytes: Long, phase: String) {
-    emitProgressOnUi(createProgressEvent(downloadedBytes, totalBytes, phase))
-  }
-
-  private fun createProgressEvent(downloadedBytes: Long, totalBytes: Long, phase: String): WritableMap =
-    Arguments.createMap().apply {
+    val progress = Arguments.createMap().apply {
       putDouble("downloadedBytes", downloadedBytes.toDouble())
       putDouble("totalBytes", totalBytes.coerceAtLeast(0).toDouble())
       putInt("percent", if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else -1)
       putString("phase", phase)
     }
-
-  private fun emitProgressOnUi(progress: WritableMap) {
     context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
       .emit(PROGRESS_EVENT, progress)
   }
@@ -190,17 +182,6 @@ class CercaGoUpdateModule(private val context: ReactApplicationContext) :
       return
     }
     launchInstaller(activity, apk)
-  }
-
-  private fun emitProgressOnUi(downloadedBytes: Long, totalBytes: Long, phase: String) {
-    val progress = Arguments.createMap().apply {
-      putDouble("downloadedBytes", downloadedBytes.toDouble())
-      putDouble("totalBytes", totalBytes.coerceAtLeast(0).toDouble())
-      putInt("percent", if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else -1)
-      putString("phase", phase)
-    }
-    context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      .emit(PROGRESS_EVENT, progress)
   }
 
   private fun launchInstaller(activity: Activity, apk: File) {
