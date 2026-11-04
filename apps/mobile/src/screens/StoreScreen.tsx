@@ -10,12 +10,24 @@ import { useAppearance } from "../appearance";
 import type { Order, Product } from "../types";
 import { socket } from "./socketRef";
 
+type StoreCoupon = {
+  id: string;
+  code: string;
+  discount_type: "percent" | "fixed";
+  discount_value: string | number;
+  usage_limit: number | null;
+  used_count: number;
+  required_completed_orders: number;
+  active: boolean;
+};
+
 export function StoreScreen() {
   const { session, exchangeRate, exchangeRateValueDate } = useAuth();
   const { theme } = useAppearance();
   const token = session!.token;
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [coupons, setCoupons] = useState<StoreCoupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
@@ -35,16 +47,23 @@ export function StoreScreen() {
   const [paymentDocument, setPaymentDocument] = useState("");
   const [paymentPhone, setPaymentPhone] = useState("");
   const [activeChatOrder, setActiveChatOrder] = useState<Order | null>(null);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscountType, setCouponDiscountType] = useState<"percent" | "fixed">("percent");
+  const [couponDiscountValue, setCouponDiscountValue] = useState("");
+  const [couponUsageLimit, setCouponUsageLimit] = useState("");
+  const [couponRequiredOrders, setCouponRequiredOrders] = useState("0");
 
   const refresh = useCallback(async () => {
     try {
-      const [nextOrders, nextProducts, store] = await Promise.all([
+      const [nextOrders, nextProducts, store, nextCoupons] = await Promise.all([
         api<Order[]>("/orders", token),
         api<Product[]>("/products/mine", token),
         api<{ name: string; address: string; description?: string; latitude?: number | null; longitude?: number | null; has_own_delivery?: boolean; free_delivery?: boolean; payment_bank?: string | null; payment_document?: string | null; payment_phone?: string | null }>("/stores/me", token),
+        api<StoreCoupon[]>("/store/coupons", token),
       ]);
       setOrders(nextOrders);
       setProducts(nextProducts);
+      setCoupons(nextCoupons);
       setStoreName(store.name);
       setStoreAddress(store.address);
       setStoreDescription(store.description ?? "");
@@ -132,6 +151,43 @@ export function StoreScreen() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo actualizar el perfil"); }
   }
 
+  async function createCoupon() {
+    const value = Number(couponDiscountValue);
+    const usageLimit = couponUsageLimit.trim() ? Number(couponUsageLimit) : null;
+    const requiredOrders = Number(couponRequiredOrders);
+    if (!/^[A-Za-z0-9_-]{3,32}$/.test(couponCode.trim())) return setError("El código debe tener entre 3 y 32 letras, números, guiones o guiones bajos.");
+    if (!Number.isFinite(value) || value <= 0 || (couponDiscountType === "percent" && value > 100)) return setError("El descuento debe ser mayor que cero y el porcentaje no puede superar 100.");
+    if (usageLimit !== null && (!Number.isInteger(usageLimit) || usageLimit < 1)) return setError("El límite de usos debe ser un número entero positivo.");
+    if (!Number.isInteger(requiredOrders) || requiredOrders < 0) return setError("El requisito de pedidos completados no es válido.");
+    try {
+      await api<StoreCoupon>("/store/coupons", token, {
+        method: "POST",
+        body: JSON.stringify({
+          code: couponCode.trim().toUpperCase(),
+          discountType: couponDiscountType,
+          discountValue: value,
+          usageLimit,
+          requiredCompletedOrders: requiredOrders,
+        }),
+      });
+      setCouponCode("");
+      setCouponDiscountValue("");
+      setCouponUsageLimit("");
+      setCouponRequiredOrders("0");
+      await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo crear el cupón"); }
+  }
+
+  async function toggleCoupon(coupon: StoreCoupon) {
+    try {
+      await api<StoreCoupon>(`/store/coupons/${coupon.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ active: !coupon.active }),
+      });
+      await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo actualizar el cupón"); }
+  }
+
   async function deleteProduct(product: Product) {
     Alert.alert("Eliminar producto", `¿Eliminar ${product.name} del catálogo?`, [
       { text: "Cancelar", style: "cancel" },
@@ -212,6 +268,26 @@ export function StoreScreen() {
           )}
         </Card>
       ))}
+      <Card>
+        <Text style={[styles.section, { color: theme.ink }]}>Cupones de descuento</Text>
+        <Text style={[styles.subtitle, { color: theme.muted }]}>Los descuentos se verifican en el servidor al crear el pedido.</Text>
+        <Field label="Código" value={couponCode} onChangeText={setCouponCode} placeholder="VECINO10" />
+        <Button title={`Tipo de descuento: ${couponDiscountType === "percent" ? "Porcentaje" : "Monto fijo USD"}`} secondary onPress={() => setCouponDiscountType((type) => type === "percent" ? "fixed" : "percent")} />
+        <Field label={couponDiscountType === "percent" ? "Porcentaje (máximo 100)" : "Monto a descontar en USD"} value={couponDiscountValue} onChangeText={setCouponDiscountValue} keyboardType="numeric" />
+        <Field label="Límite de usos (opcional)" value={couponUsageLimit} onChangeText={setCouponUsageLimit} keyboardType="numeric" placeholder="Sin límite" />
+        <Field label="Pedidos entregados en este comercio requeridos" value={couponRequiredOrders} onChangeText={setCouponRequiredOrders} keyboardType="numeric" placeholder="0" />
+        <Button title="Crear cupón" onPress={() => void createCoupon()} />
+        {!coupons.length && <Text style={[styles.subtitle, { color: theme.muted }]}>Aún no has creado cupones.</Text>}
+        {coupons.map((coupon) => (
+          <View key={coupon.id} style={{ padding: 12, borderRadius: 14, backgroundColor: theme.background, gap: 5 }}>
+            <Text style={{ color: theme.ink, fontWeight: "900" }}>{coupon.code} · {coupon.discount_type === "percent" ? `${coupon.discount_value}%` : `${coupon.discount_value} USD`}</Text>
+            <Text style={[styles.subtitle, { color: theme.muted }]}>
+              Usos: {coupon.used_count}{coupon.usage_limit == null ? "" : ` / ${coupon.usage_limit}`} · Requiere {coupon.required_completed_orders} pedidos entregados · {coupon.active ? "Activo" : "Pausado"}
+            </Text>
+            <Button title={coupon.active ? "Pausar cupón" : "Activar cupón"} secondary onPress={() => void toggleCoupon(coupon)} />
+          </View>
+        ))}
+      </Card>
       <Text style={[styles.section, { color: theme.ink }]}>{editing ? "Editar producto" : "Agregar producto"}</Text>
       <Field label="Nombre" value={name} onChangeText={setName} />
       <Field label="Descripción" value={description} onChangeText={setDescription} />

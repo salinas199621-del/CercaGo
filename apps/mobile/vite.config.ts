@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "react-native": "react-native-web",
+        "@react-native/assets-registry/registry": "react-native-web/dist/modules/AssetRegistry/index.js",
       },
       extensions: [".web.tsx", ".web.ts", ".web.jsx", ".web.js", ".tsx", ".ts", ".jsx", ".js", ".json"],
     },

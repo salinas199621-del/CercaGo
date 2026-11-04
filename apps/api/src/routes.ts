@@ -742,6 +742,152 @@ router.delete("/addresses/:addressId", authenticate, allowRoles("customer"), asy
   } finally { client.release(); }
 }));
 
+const couponItemsSchema = z.array(z.object({
+  productId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(50),
+})).min(1).max(50).superRefine((items, context) => {
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (seen.has(item.productId)) {
+      context.addIssue({ code: "custom", path: [index, "productId"], message: "No repitas un producto en el pedido" });
+    }
+    seen.add(item.productId);
+  });
+});
+
+function couponDiscountCents(coupon: { discount_type: string; discount_value: string | number }, subtotalCents: number) {
+  const value = Number(coupon.discount_value);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(subtotalCents, coupon.discount_type === "percent"
+    ? Math.round(subtotalCents * value / 100)
+    : Math.round(value * 100));
+}
+
+router.get("/store/coupons", authenticate, allowRoles("store"), asyncHandler(async (req, res) => {
+  const storeId = await getStoreIdForOwner(actor(req as AuthRequest).id);
+  if (!storeId) return res.status(404).json({ error: "Comercio no encontrado" });
+  const { rows } = await pool.query(
+    `SELECT id, code, discount_type, discount_value, usage_limit, used_count,
+            required_completed_orders, active, created_at
+     FROM store_coupons WHERE store_id = $1 ORDER BY created_at DESC`,
+    [storeId],
+  );
+  return res.json(rows);
+}));
+
+router.post("/store/coupons", authenticate, allowRoles("store"), asyncHandler(async (req, res) => {
+  const input = z.object({
+    code: z.string().trim().min(3).max(32).regex(/^[A-Za-z0-9_-]+$/, "Usa solo letras, números, guion o guion bajo").transform((value) => value.toUpperCase()),
+    discountType: z.enum(["percent", "fixed"]),
+    discountValue: z.number().positive().max(100_000),
+    usageLimit: z.number().int().positive().nullable().optional(),
+    requiredCompletedOrders: z.number().int().min(0).max(10_000).default(0),
+  }).refine((value) => value.discountType !== "percent" || value.discountValue <= 100, {
+    message: "El porcentaje máximo de descuento es 100",
+    path: ["discountValue"],
+  }).parse(req.body);
+  const storeId = await getStoreIdForOwner(actor(req as AuthRequest).id);
+  if (!storeId) return res.status(404).json({ error: "Comercio no encontrado" });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO store_coupons(store_id, code, discount_type, discount_value, usage_limit, required_completed_orders)
+       VALUES($1, $2, $3, $4, $5, $6)
+       RETURNING id, code, discount_type, discount_value, usage_limit, used_count,
+                 required_completed_orders, active, created_at`,
+      [storeId, input.code, input.discountType, input.discountValue, input.usageLimit ?? null, input.requiredCompletedOrders],
+    );
+    return res.status(201).json(rows[0]);
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      return res.status(409).json({ error: "Ya existe un cupón con ese código en tu comercio." });
+    }
+    throw error;
+  }
+}));
+
+router.patch("/store/coupons/:couponId", authenticate, allowRoles("store"), asyncHandler(async (req, res) => {
+  const { active } = z.object({ active: z.boolean() }).parse(req.body);
+  const storeId = await getStoreIdForOwner(actor(req as AuthRequest).id);
+  const { rows } = await pool.query(
+    `UPDATE store_coupons SET active = $1
+     WHERE id = $2 AND store_id = $3
+     RETURNING id, code, discount_type, discount_value, usage_limit, used_count,
+               required_completed_orders, active, created_at`,
+    [active, req.params.couponId, storeId],
+  );
+  if (!rows[0]) return res.status(404).json({ error: "Cupón no encontrado" });
+  return res.json(rows[0]);
+}));
+
+router.get("/stores/:storeId/coupons", asyncHandler(async (req, res) => {
+  const storeId = z.string().uuid().parse(req.params.storeId);
+  const { rows } = await pool.query(
+    `SELECT id, code, discount_type, discount_value, usage_limit, used_count, required_completed_orders
+     FROM store_coupons
+     WHERE store_id = $1 AND active = TRUE
+       AND (usage_limit IS NULL OR used_count < usage_limit)
+     ORDER BY created_at DESC`,
+    [storeId],
+  );
+  return res.json(rows);
+}));
+
+router.post("/stores/:storeId/coupons/validate", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  const storeId = z.string().uuid().parse(req.params.storeId);
+  const input = z.object({
+    code: z.string().trim().min(3).max(32).transform((value) => value.toUpperCase()),
+    items: couponItemsSchema,
+  }).parse(req.body);
+  const productIds = input.items.map((item) => item.productId);
+  const products = await pool.query(
+    `SELECT id, price::text AS price, stock_quantity FROM products
+     WHERE store_id = $1 AND active = TRUE AND in_stock = TRUE AND id = ANY($2::uuid[])`,
+    [storeId, productIds],
+  );
+  if (products.rowCount !== new Set(productIds).size) {
+    return res.status(400).json({ error: "Uno o más productos ya no están disponibles." });
+  }
+  const byId = new Map(products.rows.map((product) => [product.id, product]));
+  const subtotalCents = input.items.reduce((sum, item) => {
+    const product = byId.get(item.productId);
+    if (!product || Number(product.stock_quantity) < item.quantity) return sum;
+    return sum + Math.round(Number(product.price) * 100) * item.quantity;
+  }, 0);
+  if (input.items.some((item) => Number(byId.get(item.productId)?.stock_quantity) < item.quantity)) {
+    return res.status(409).json({ error: "La cantidad solicitada supera el stock disponible." });
+  }
+  const couponResult = await pool.query(
+    `SELECT id, code, discount_type, discount_value, usage_limit, used_count, required_completed_orders
+     FROM store_coupons
+     WHERE store_id = $1 AND code = $2 AND active = TRUE`,
+    [storeId, input.code],
+  );
+  const coupon = couponResult.rows[0];
+  if (!coupon) return res.status(404).json({ error: "El código no existe o está desactivado." });
+  if (coupon.usage_limit != null && Number(coupon.used_count) >= Number(coupon.usage_limit)) {
+    return res.status(409).json({ error: "Este cupón ya alcanzó su límite de usos." });
+  }
+  if (Number(coupon.required_completed_orders) > 0) {
+    const completed = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM orders WHERE customer_id = $1 AND store_id = $2 AND status = 'delivered'",
+      [user.id, storeId],
+    );
+    if (Number(completed.rows[0].count) < Number(coupon.required_completed_orders)) {
+      return res.status(403).json({ error: `Completa ${coupon.required_completed_orders} pedidos en este comercio para usar este cupón.` });
+    }
+  }
+  const discountCents = couponDiscountCents(coupon, subtotalCents);
+  if (discountCents <= 0) return res.status(400).json({ error: "Este cupón no aplica al monto actual del pedido." });
+  return res.json({
+    code: coupon.code,
+    discountType: coupon.discount_type,
+    discountValue: Number(coupon.discount_value),
+    subtotal: (subtotalCents / 100).toFixed(2),
+    discountAmount: (discountCents / 100).toFixed(2),
+  });
+}));
+
 router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
   const user = actor(req as AuthRequest);
   const input = z.object({
@@ -750,8 +896,9 @@ router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async 
     deliveryAddress: z.string().trim().min(5).optional(),
     deliveryLatitude: z.number().min(-90).max(90).optional(),
     deliveryLongitude: z.number().min(-180).max(180).optional(),
+    couponCode: z.string().trim().min(3).max(32).transform((value) => value.toUpperCase()).optional(),
     notes: z.string().max(1000).optional(),
-    items: z.array(z.object({ productId: z.string().uuid(), quantity: z.number().int().min(1).max(50) })).min(1).max(50),
+    items: couponItemsSchema,
   }).parse(req.body);
   const client = await pool.connect();
   let order: Record<string, unknown>;
@@ -804,6 +951,42 @@ router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async 
     }
     const subtotalCents = items.reduce((sum, item) => sum + Math.round(Number(item.product.price) * 100) * item.quantity, 0);
     const deliveryFeeCents = store.rows[0].free_delivery ? 0 : Math.round(Number(store.rows[0].delivery_fee) * 100);
+    let coupon: { id: string; code: string; discount_type: string; discount_value: string; usage_limit: number | null; used_count: number; required_completed_orders: number } | null = null;
+    let discountCents = 0;
+    if (input.couponCode) {
+      const couponResult = await client.query(
+        `SELECT id, code, discount_type, discount_value::text AS discount_value,
+                usage_limit, used_count, required_completed_orders
+         FROM store_coupons
+         WHERE store_id = $1 AND code = $2 AND active = TRUE
+         FOR UPDATE`,
+        [input.storeId, input.couponCode],
+      );
+      coupon = couponResult.rows[0] ?? null;
+      if (!coupon) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "El cupón no existe o está desactivado." });
+      }
+      if (coupon.usage_limit != null && Number(coupon.used_count) >= Number(coupon.usage_limit)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Este cupón ya alcanzó su límite de usos." });
+      }
+      if (Number(coupon.required_completed_orders) > 0) {
+        const completed = await client.query(
+          "SELECT COUNT(*)::int AS count FROM orders WHERE customer_id = $1 AND store_id = $2 AND status = 'delivered'",
+          [user.id, input.storeId],
+        );
+        if (Number(completed.rows[0].count) < Number(coupon.required_completed_orders)) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({ error: `Completa ${coupon.required_completed_orders} pedidos en este comercio para usar este cupón.` });
+        }
+      }
+      discountCents = couponDiscountCents(coupon, subtotalCents);
+      if (discountCents <= 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Este cupón no aplica al monto actual del pedido." });
+      }
+    }
     const rateResult = await client.query(
       `SELECT r.value #>> '{}' AS rate
        FROM app_settings r
@@ -818,13 +1001,22 @@ router.post("/orders", authenticate, allowRoles("customer"), asyncHandler(async 
     }
     const created = await client.query(
       `INSERT INTO orders(customer_id, store_id, address_id, delivery_address, delivery_latitude,
-                          delivery_longitude, subtotal, delivery_fee, total, exchange_rate, notes)
-       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+                          delivery_longitude, subtotal, coupon_id, coupon_code, discount_amount,
+                          delivery_fee, total, exchange_rate, notes)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
       [user.id, input.storeId, input.addressId ?? null, deliveryAddress, deliveryLatitude, deliveryLongitude,
-        (subtotalCents / 100).toFixed(2), (deliveryFeeCents / 100).toFixed(2),
-        ((subtotalCents + deliveryFeeCents) / 100).toFixed(2), exchangeRate, input.notes ?? null],
+        (subtotalCents / 100).toFixed(2), coupon?.id ?? null, coupon?.code ?? null, (discountCents / 100).toFixed(2),
+        (deliveryFeeCents / 100).toFixed(2), ((subtotalCents - discountCents + deliveryFeeCents) / 100).toFixed(2),
+        exchangeRate, input.notes ?? null],
     );
     order = created.rows[0];
+    if (coupon) {
+      await client.query("UPDATE store_coupons SET used_count = used_count + 1 WHERE id = $1", [coupon.id]);
+      await client.query(
+        "INSERT INTO coupon_redemptions(coupon_id, order_id, customer_id, discount_amount) VALUES($1, $2, $3, $4)",
+        [coupon.id, order.id, user.id, (discountCents / 100).toFixed(2)],
+      );
+    }
     for (const item of items) {
       const unitCents = Math.round(Number(item.product.price) * 100);
       await client.query(
@@ -897,6 +1089,29 @@ async function canAccessOrder(orderId: string, userId: string) {
   );
   return Boolean(rowCount);
 }
+
+router.get("/messages", authenticate, allowRoles("customer"), asyncHandler(async (req, res) => {
+  const user = actor(req as AuthRequest);
+  const { rows } = await pool.query(
+    `SELECT o.id AS order_id, o.status AS order_status, o.created_at AS order_created_at,
+            s.name AS store_name, latest.message AS last_message,
+            latest.sender_id AS last_sender_id, latest.created_at AS last_message_at
+     FROM orders o
+     JOIN stores s ON s.id = o.store_id
+     LEFT JOIN LATERAL (
+       SELECT m.message, m.sender_id, m.created_at
+       FROM order_messages m
+       WHERE m.order_id = o.id
+       ORDER BY m.created_at DESC
+       LIMIT 1
+     ) latest ON TRUE
+     WHERE o.customer_id = $1
+     ORDER BY COALESCE(latest.created_at, o.created_at) DESC
+     LIMIT 100`,
+    [user.id],
+  );
+  return res.json(rows);
+}));
 
 router.get("/orders/:orderId/messages", authenticate, asyncHandler(async (req, res) => {
   const user = actor(req as AuthRequest);

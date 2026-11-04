@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, StatusBar, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Modal, NativeModules, Platform, Pressable, StatusBar, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -14,8 +14,11 @@ import { HomeSplash } from "./src/components/HomeSplash";
 import { AppearanceProvider, useAppearance } from "./src/appearance";
 
 const Stack = createNativeStackNavigator();
-const CURRENT_APP_VERSION = "1.0.8";
+const CURRENT_APP_VERSION = "1.0.9";
 const VERSION_MANIFEST_URL = "https://salinas199621-del.github.io/CercaGo/app-version.json";
+const nativeUpdater = NativeModules.CercaGoUpdate as {
+  installUpdate: (url: string, version: string) => Promise<void>;
+} | undefined;
 
 function getVersionManifestUrl() {
   if (
@@ -62,6 +65,7 @@ function RootNavigator() {
   const [startupSplashDone, setStartupSplashDone] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<{ version: string; url: string } | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
   useEffect(() => {
     AsyncStorage.getItem("cercago-onboarding-done")
       .then((value) => setOnboardingDone(value === "true"))
@@ -111,30 +115,61 @@ function RootNavigator() {
     await AsyncStorage.setItem("cercago-onboarding-done", "true");
     setOnboardingDone(true);
   }
+  function startUpdate() {
+    if (Platform.OS === "web" && typeof window !== "undefined" && availableUpdate) {
+      const updatedUrl = new URL(window.location.href);
+      updatedUrl.searchParams.set("app_version", availableUpdate.version);
+      window.location.replace(updatedUrl.toString());
+      return;
+    }
+    if (Platform.OS === "android" && availableUpdate) {
+      if (!nativeUpdater) {
+        Alert.alert("No se pudo iniciar la actualización", "CercaGo no tiene disponible el instalador integrado. Descarga el APK desde la página de CercaGo.");
+        return;
+      }
+      setInstallingUpdate(true);
+      void nativeUpdater.installUpdate(availableUpdate.url, availableUpdate.version)
+        .catch((error: unknown) => {
+          console.error("No se pudo descargar o iniciar la instalación de CercaGo", error);
+          Alert.alert(
+            "No se pudo continuar",
+            error instanceof Error ? error.message : "Intenta de nuevo. Si Android te pide autorización, permite a CercaGo instalar aplicaciones y vuelve a la app.",
+          );
+        })
+        .finally(() => setInstallingUpdate(false));
+      return;
+    }
+    if (availableUpdate) {
+      void Linking.openURL(availableUpdate.url).catch((error: unknown) => {
+        console.error("No se pudo abrir la descarga de la actualización", error);
+        Alert.alert("No se pudo abrir la descarga", "Intenta de nuevo desde Chrome.");
+      });
+    }
+  }
   if (availableUpdate) return (
     <Modal visible transparent animationType="fade">
       <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: theme.primaryDark }}>
-        <View style={{ backgroundColor: theme.surface, borderRadius: 24, padding: 22, gap: 14 }}>
+        <View style={{ alignItems: "center", backgroundColor: theme.surface, borderRadius: 24, padding: 22, gap: 14 }}>
+          <Image
+            source={require("./assets/cercago-logo.png")}
+            accessibilityLabel="Logo de CercaGo"
+            resizeMode="contain"
+            style={{ width: 220, height: 110 }}
+          />
           <Text style={{ color: theme.ink, fontSize: 21, fontWeight: "900" }}>¡Nueva actualización disponible de CercaGo!</Text>
-          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Toca el botón para actualizar · versión {availableUpdate.version}</Text>
-          {Platform.OS !== "web" && <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Android abrirá la descarga del APK. La instalación requiere confirmar la actualización del archivo; una app nativa no puede reemplazarse desde una página web.</Text>}
+          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21, textAlign: "center" }}>Actualiza CercaGo a la versión {availableUpdate.version}.</Text>
+          {Platform.OS === "android" && <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>
+            La descarga comienza aquí. Si Android te lleva a Ajustes, activa «Permitir desde esta fuente» y vuelve a CercaGo. Después, confirma la instalación en la ventana de Android.
+          </Text>}
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
-              if (Platform.OS === "web" && typeof window !== "undefined") {
-                const updatedUrl = new URL(window.location.href);
-                updatedUrl.searchParams.set("app_version", availableUpdate.version);
-                window.location.replace(updatedUrl.toString());
-                return;
-              }
-              void Linking.openURL(availableUpdate.url).catch((error: unknown) => {
-                console.error("No se pudo abrir la descarga de la actualización", error);
-                Alert.alert("No se pudo abrir la descarga", "Intenta de nuevo desde Chrome.");
-              });
-            }}
-            style={{ minHeight: 48, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" }}
+            disabled={installingUpdate}
+            onPress={startUpdate}
+            style={{ width: "100%", minHeight: 48, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center", opacity: installingUpdate ? 0.7 : 1 }}
           >
-            <Text style={{ color: "#fff", fontWeight: "900" }}>Actualizar ahora</Text>
+            {installingUpdate
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={{ color: "#fff", fontWeight: "900" }}>{Platform.OS === "android" ? "Descargar e instalar" : "Actualizar ahora"}</Text>}
           </Pressable>
         </View>
       </View>

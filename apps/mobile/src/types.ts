@@ -50,6 +50,8 @@ export interface Order {
   has_own_delivery?: boolean;
   has_review?: boolean;
   subtotal?: string | number;
+  coupon_code?: string | null;
+  discount_amount?: string | number;
   delivery_fee?: string | number;
   payment_bank?: string | null;
   payment_document?: string | null;

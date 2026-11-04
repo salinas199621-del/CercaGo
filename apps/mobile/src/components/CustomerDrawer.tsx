@@ -1,19 +1,21 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Modal, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { CircleDollarSign, House, ListChecks, LogOut, MapPin, MessageCircle, Settings, ShoppingBag, type LucideIcon } from "lucide-react-native";
 import { CercaGoLogo } from "./CercaGoLogo";
 import { Avatar } from "./Avatar";
 import { useAppearance } from "../appearance";
 
-type DrawerItem = "home" | "orders" | "cart" | "addresses" | "rate" | "settings";
+type DrawerItem = "home" | "orders" | "cart" | "addresses" | "messages" | "rate" | "settings";
 
-const items: Array<{ id: DrawerItem; icon: string; label: string }> = [
-  { id: "home", icon: "⌂", label: "Inicio" },
-  { id: "orders", icon: "▤", label: "Mis pedidos" },
-  { id: "cart", icon: "▱", label: "Mi bolsa" },
-  { id: "addresses", icon: "⌖", label: "Mis direcciones" },
-  { id: "rate", icon: "$", label: "Tasa BCV del día" },
-  { id: "settings", icon: "⚙", label: "Ajustes" },
+const items: Array<{ id: DrawerItem; icon: LucideIcon; label: string }> = [
+  { id: "home", icon: House, label: "Inicio" },
+  { id: "orders", icon: ListChecks, label: "Mis pedidos" },
+  { id: "cart", icon: ShoppingBag, label: "Mi bolsa" },
+  { id: "addresses", icon: MapPin, label: "Mis direcciones" },
+  { id: "messages", icon: MessageCircle, label: "Mis mensajes" },
+  { id: "rate", icon: CircleDollarSign, label: "Tasa BCV del día" },
+  { id: "settings", icon: Settings, label: "Ajustes" },
 ];
 
 export function CustomerDrawer({ visible, name, email, avatar, onClose, onSelect, onProfile, onSignOut }: {
@@ -68,7 +70,7 @@ export function CustomerDrawer({ visible, name, email, avatar, onClose, onSelect
                   onPress={() => onSelect(item.id)}
                   style={({ pressed }) => ({ minHeight: 52, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 13, borderRadius: 14, backgroundColor: pressed ? theme.soft : "transparent" })}
                 >
-                  <Text style={{ width: 24, color: theme.primaryDark, fontSize: 21, fontWeight: "700", textAlign: "center" }}>{item.icon}</Text>
+                  <item.icon size={20} color={theme.primaryDark} strokeWidth={2.2} />
                   <Text style={{ color: theme.ink, fontSize: 14, fontWeight: "700" }}>{item.label}</Text>
                 </Pressable>
               ))}
@@ -76,7 +78,7 @@ export function CustomerDrawer({ visible, name, email, avatar, onClose, onSelect
 
             <View style={{ flex: 1 }} />
             <Pressable accessibilityRole="button" onPress={onSignOut} style={{ minHeight: 52, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 13, borderTopWidth: 1, borderTopColor: theme.border, marginBottom: 12 }}>
-              <Text style={{ width: 24, color: "#D8482D", fontSize: 20, textAlign: "center" }}>↪</Text>
+              <LogOut size={20} color="#D8482D" strokeWidth={2.2} />
               <Text style={{ color: "#B93824", fontSize: 14, fontWeight: "800" }}>Cerrar sesión</Text>
             </Pressable>
           </SafeAreaView>

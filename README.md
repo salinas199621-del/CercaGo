@@ -12,7 +12,7 @@ Marketplace local con API REST, PostgreSQL, Socket.IO, app React Native para cli
 
 1. Copia `apps/api/.env.example` a `apps/api/.env` y configura PostgreSQL, un `JWT_SECRET` aleatorio de al menos 32 caracteres y las variables iniciales de administrador (contraseña de al menos 16 caracteres).
 2. Crea la base de datos y ejecuta `apps/api/sql/schema.sql`.
-   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 006 de `apps/api/sql/migrations/`. Antes de aplicar `006_account_recovery.sql`, revisa teléfonos duplicados con `SELECT phone, COUNT(*) FROM users WHERE phone IS NOT NULL AND phone <> '' GROUP BY phone HAVING COUNT(*) > 1;` y resuélvelos manualmente; la migración crea un índice único y no modifica registros existentes.
+   Si ya habías creado la base anteriormente, ejecuta en orden las migraciones 001 a 007 de `apps/api/sql/migrations/`. Antes de aplicar `006_account_recovery.sql`, revisa teléfonos duplicados con `SELECT phone, COUNT(*) FROM users WHERE phone IS NOT NULL AND phone <> '' GROUP BY phone HAVING COUNT(*) > 1;` y resuélvelos manualmente; la migración crea un índice único y no modifica registros existentes.
 3. Desde la raíz ejecuta `npm install`.
 4. Crea la cuenta de administración inicial con `npm run create-admin -w @cercago/api`.
 5. En terminales separadas ejecuta `npm run dev:api`, `npm run dev:mobile` y `npm run dev:admin`.
@@ -29,7 +29,7 @@ La cotización oficial en bolívares se consulta desde DolarAPI en el cliente y 
 
 Los anuncios del Home se administran desde **Panel de administración → Anuncios** y se guardan en la API. Cada entrada admite imágenes/GIF o video, una URL HTTPS, texto, color y un enlace HTTPS opcional. El cliente carga la configuración del servidor; los videos se reproducen silenciados en web y Android. Los anuncios ya no aparecen en los ajustes del cliente.
 
-`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La versión fuente preparada es 1.0.8 (Android `versionCode` 9); publica el APK de esa versión y luego el manifiesto para activar el aviso en instalaciones anteriores. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
+`apps/mobile/public/app-version.json` contiene `app_version` y `update_url`. La última versión publicada es 1.0.8; la próxima fuente preparada es 1.0.9 (Android `versionCode` 10). Mantén el manifiesto en 1.0.8 hasta publicar el APK 1.0.9. Android requiere confirmar la instalación del APK y conserva los datos de sesión.
 
 Las fotos de comprobantes se reducen y envían en JPEG/PNG/WebP al API, que las guarda en el mensaje del pedido. En la web se puede elegir una foto; en Android/iOS se abre el selector nativo de imágenes.
 
@@ -48,7 +48,7 @@ El repositorio incluye `render.yaml` para desplegar la API Node en Render. Para 
 
 1. Crea un proyecto PostgreSQL en Neon y copia la cadena de conexión (usa la cadena recomendada por Neon con SSL). No la compartas ni la guardes en Git.
 2. En Render, crea un **Blueprint** conectado a este repositorio y acepta `render.yaml`. Configura `DATABASE_URL` con la cadena de Neon cuando Render la solicite. `JWT_SECRET` se genera automáticamente y el sitio canónico se sirve desde Render.
-3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Para una base ya existente, aplica en orden las migraciones 001 a 006.
+3. Cuando la base esté creada, abre el SQL Editor de Neon y ejecuta una vez `apps/api/sql/schema.sql`. Para una base ya existente, aplica en orden las migraciones 001 a 007; la migración 007 habilita los cupones de comercio.
 4. En Render, espera a que el servicio `cercago-api` esté activo. Comprueba `https://TU-API.onrender.com/health`; debe responder `{"status":"ok"}`.
 5. Crea el administrador inicial ejecutando `npm run create-admin -w @cercago/api` desde tu equipo, con `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y una contraseña de 16–72 bytes configurados temporalmente en la terminal. No añadas esos valores al repositorio.
 6. El sitio, el panel y el API se despliegan desde el mismo servicio de Render; la aplicación Android usa ese API por HTTPS.
